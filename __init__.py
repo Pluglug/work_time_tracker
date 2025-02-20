@@ -2,7 +2,7 @@ bl_info = {
     "name": "Blender 作業時間トラッカー",
     "description": "Blender内での作業時間を追跡し、視覚化するアドオン",
     "author": "Your Name",
-    "version": (0, 3),
+    "version": (0, 2, 1),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > Time",
     "category": "System",
@@ -25,7 +25,6 @@ class TimeData:
         self.file_id = str(uuid.uuid4())
     
     def start_session(self):
-        # すでにセッションが開始されている場合は何もしない
         if self.current_session_start is None:
             self.current_session_start = time.time()
             if self.file_creation_time is None:
@@ -72,33 +71,28 @@ class TimeData:
         self.file_creation_time = data.get("file_creation_time")
         self.file_id = data.get("file_id", str(uuid.uuid4()))
 
-# グローバルなTimeDataインスタンス
 global_time_data = TimeData()
 
 def load_hidden_text():
     text = bpy.data.texts.get(HIDDEN_TEXT_NAME)
     if text is None:
-        # 存在しなければ新規作成して初期データを書き込み
         text = bpy.data.texts.new(HIDDEN_TEXT_NAME)
+        # Fake Userを付与して、ファイル保存時に削除されないようにする
+        text.use_fake_user = True
         text.write(json.dumps(global_time_data.to_dict()))
     else:
-        # テキスト内容が空でなければ読み込む
-        content = text.as_string().strip()
-        if content:
-            try:
-                data = json.loads(content)
-                global_time_data.from_dict(data)
-            except Exception as e:
-                print("Error loading time data:", e)
-        else:
-            # 空の場合は初期データを書き込む
-            text.write(json.dumps(global_time_data.to_dict()))
+        try:
+            data = json.loads(text.as_string())
+            global_time_data.from_dict(data)
+        except Exception as e:
+            print("Error loading time data:", e)
     return text
 
 def save_hidden_text():
     text = bpy.data.texts.get(HIDDEN_TEXT_NAME)
     if text is None:
         text = bpy.data.texts.new(HIDDEN_TEXT_NAME)
+        text.use_fake_user = True
     text.clear()
     text.write(json.dumps(global_time_data.to_dict(), indent=4))
 
@@ -113,13 +107,11 @@ def on_load_post(dummy):
 
 def on_save_post(dummy):
     print("ファイル保存完了: 保存時刻更新のみ")
-    # セッションを終了せず、現在のセッションを継続
     global_time_data.update_save_time()
     save_hidden_text()
     return None
 
 def update_timer():
-    # タイマーではセッションの作成や終了は行わず、定期的なデータ保存のみを行う
     save_hidden_text()
     return 1.0
 
