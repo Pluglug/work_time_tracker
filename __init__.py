@@ -19,7 +19,7 @@ import atexit
 from bpy.app.handlers import persistent
 
 # Constants
-TEXT_NAME = ".hidden_work_time.json"
+TEXT_NAME = ".hidden_work_time_"
 UNSAVED_WARNING_THRESHOLD = 10 * 60  # 10 minutes in seconds
 
 # Global variables
@@ -29,20 +29,35 @@ timer = None
 def blend_time_data():
     """Get time tracking data for current blend file, create if doesn't exist"""
     import bpy
-    name = TEXT_NAME
-    if name not in bpy.data.texts:
+    import random
+    import string
+    name = f"{TEXT_NAME}{''.join(random.choices(string.ascii_letters + string.digits, k=8))}.json"
+    # Look for any existing text block starting with TEXT_NAME
+    existing_text = None
+    for text in bpy.data.texts:
+        if text.name.startswith(TEXT_NAME):
+            existing_text = text
+            name = text.name
+            break
+    
+    # Create new if none found
+    if not existing_text:
         t = bpy.data.texts.new(name)
+        t.use_fake_user = True
         # Initialize with empty data
         data = {
             'total_time': 0,
             'last_save_time': time.time(),
             'sessions': [],
             'file_creation_time': time.time(),
-            'file_id': 'unsaved_file'
+            'file_id': 'unsaved_file',
+            'version': 2,
         }
         t.write(json.dumps(data, indent=2))
         print(f"Created new time tracking data text block: {name}")
-    
+    else:
+        existing_text.use_fake_user = True
+
     return bpy.data.texts[name]
 
 class TimeData:
@@ -63,70 +78,103 @@ class TimeData:
             self.data_loaded = True
             
     def start_session(self):
-        """Start a new session - only call this during file load"""
-        # End any existing active sessions first
-        self.end_active_sessions()
+        """セッションを開始 - ファイル読み込み時のみ呼び出す"""
+        # アクティブなセッションがあるか確認
+        active_sessions = [s for s in self.sessions if s.get('end') is None]
         
-        # Now start a new session
+        if active_sessions:
+            print(f"Warning: {len(active_sessions)} active sessions found, ending them first")
+            self.end_active_sessions()
+        
+        # 新しいセッションを開始
         self.current_session_start = time.time()
+        session_id = len(self.sessions) + 1
+        
         self.sessions.append({
+            'id': session_id,
             'start': self.current_session_start,
             'end': None,
-            'duration': 0
+            'duration': 0,
+            'file_id': self.file_id,
+            'date': datetime.datetime.now().strftime('%Y-%m-%d')
         })
-        print(f"Started new session at {datetime.datetime.fromtimestamp(self.current_session_start)}")
+        
+        print(f"Started session #{session_id} at {datetime.datetime.fromtimestamp(self.current_session_start)}")
+        return session_id
         
     def end_active_sessions(self):
-        """End any active sessions - useful when switching files or closing Blender"""
+        """アクティブなセッションを終了"""
         end_time = time.time()
-        session_ended = False
+        ended_count = 0
         
         for session in self.sessions:
-            if session['end'] is None:
+            if session.get('end') is None:
                 session['end'] = end_time
                 session['duration'] = session['end'] - session['start']
-                print(f"Ended session: {datetime.datetime.fromtimestamp(session['start'])} to {datetime.datetime.fromtimestamp(session['end'])}")
-                session_ended = True
-                
-        if session_ended:
-            # Update total time
+                print(f"Ended session #{session.get('id', '?')}: {datetime.datetime.fromtimestamp(session['start'])} to {datetime.datetime.fromtimestamp(session['end'])}")
+                ended_count += 1
+        
+        if ended_count > 0:
+            # トータル時間を更新
             self.total_time = sum(session.get('duration', 0) for session in self.sessions)
-            return True
-        return False
+            print(f"Updated total time: {self.format_time(self.total_time)}")
+        
+        return ended_count
 
     def load_data(self):
-        """Load time tracking data from text block"""
-        # Set file_id based on current blend file
+        """テキストブロックからデータを読み込む - Blender再起動対応"""
+        # ファイルIDの設定
         if bpy.data.filepath:
             self.file_id = bpy.path.basename(bpy.data.filepath)
         else:
-            self.file_id = "unsaved_file"
+            # 新規ファイルには一意のIDを割り当て
+            import uuid
+            self.file_id = f"unsaved_file_{uuid.uuid4().hex[:8]}"
         
         print(f"Current file path: {bpy.data.filepath}")
         print(f"Setting file_id to: {self.file_id}")
         
-        # Try to load existing data
-        text_block = self._get_text_block()
-        if text_block and text_block.as_string():
+        # テキストブロックからデータ読み込み
+        text_block = blend_time_data()  # 必ず有効なテキストブロックを取得
+        
+        if text_block and text_block.as_string().strip():
             try:
                 data = json.loads(text_block.as_string())
+                # データバージョンチェック（将来の互換性のため）
+                version = data.get('version', 1)
+                
                 self.total_time = data.get('total_time', 0)
                 self.last_save_time = data.get('last_save_time', time.time())
                 self.sessions = data.get('sessions', [])
                 self.file_creation_time = data.get('file_creation_time', time.time())
-                self.file_id = data.get('file_id', self.file_id)
-                self.current_session_start = None  # Always reset session start
-                print(f"Loaded time data: {len(self.sessions)} sessions, {self.format_time(self.total_time)} total time")
+                stored_file_id = data.get('file_id')
+                
+                # 現在のファイルがテキストブロックと一致するか確認
+                if stored_file_id == self.file_id:
+                    print(f"Loaded time data: {len(self.sessions)} sessions, {self.format_time(self.total_time)} total time")
+                else:
+                    print(f"File ID mismatch: stored={stored_file_id}, current={self.file_id}")
+                    # 同じBlendファイルを開いていても、パスが変更されている可能性
+                    if bpy.data.filepath and stored_file_id and not stored_file_id.startswith("unsaved_file"):
+                        print("Attempting to reconcile file IDs")
+                        # 統計データは保持するが、セッションはリセット
+                        self.sessions = []
+                    else:
+                        # 未保存ファイルまたは新規ファイルとして扱う
+                        self.total_time = 0
+                        self.sessions = []
+                        self.file_creation_time = time.time()
+                
+                self.current_session_start = None  # セッション開始はリセット
             except (json.JSONDecodeError, ValueError) as e:
                 print(f"Error parsing JSON: {e}")
-                # If JSON is invalid, use default values
+                # JSONが無効な場合はデフォルト値を使用
                 pass
         else:
-            # If no text block exists, this is the first time opening this file
-            # Create a new file_creation_time
+            # テキストブロックが存在しない/空の場合は新規作成
             self.file_creation_time = time.time()
             print(f"No existing time data found, created new data")
-            # Create an initial text block
+            # 初期テキストブロック作成
             self.save_data()
     
     def update_session(self):
@@ -223,35 +271,59 @@ def load_handler(dummy):
     """Handler called when a blend file is loaded"""
     global time_data
     
-    filepath = getattr(bpy.data, 'filepath', '')
+    # Wait a moment to ensure Blender is fully loaded
+    if not hasattr(bpy.data, 'filepath'):
+        print("load_handler called too early, bpy.data.filepath not available")
+        return
+    
+    filepath = bpy.data.filepath
     print(f"load_handler called for file: {filepath}")
     
     # Initialize time_data if it doesn't exist
     if time_data is None:
         time_data = TimeData()
-    
+
+    import traceback
+    stack = traceback.extract_stack()
+    print(f"Call stack depth: {len(stack)}")
+
     # We must ensure data is loaded before creating a new session
-    # so we preserve previous sessions
     time_data.ensure_loaded()
+
+    # 前回のセッションが終了していない場合は終了させる
+    # これにより、前回のBlender終了時に記録できなかったセッション終了を補完
+    ended_sessions = time_data.end_active_sessions()
+    if ended_sessions:
+        print(f"Ended {ended_sessions} incomplete sessions from previous run")
     
-    # Detect if this is a NEW file (read_homefile or new Blender session)
-    if not filepath:
-        # This is likely a new unsaved file, so we should reset the file_id
-        print("Detected new unsaved file - resetting file_id")
-        time_data.file_id = "unsaved_file"
-    elif filepath and time_data.file_id != bpy.path.basename(filepath):
-        # This is a different file than what we had before
-        print(f"Detected new file: {bpy.path.basename(filepath)}")
-        time_data.file_id = bpy.path.basename(filepath)
+    # ファイルID検証とセッション開始ロジックの分離
+    current_file_id = _get_current_file_id()
     
-    # Start a new session (this will automatically end any active session)
-    time_data.start_session()
+    if time_data.file_id != current_file_id:
+        print(f"File change detected: {time_data.file_id} -> {current_file_id}")
+        time_data.file_id = current_file_id
+        
+        # 新規セッション作成の条件チェック: セッションが存在しないか、すべてのセッションが終了している
+        if not time_data.sessions or all(session.get('end') is not None for session in time_data.sessions):
+            time_data.start_session()
+            print(f"Started new session for {time_data.file_id}")
+        else:
+            print(f"Active session already exists, not creating a new one")
     
-    # Save the updated data
+    # データを保存
     time_data.save_data()
     
-    # Start the timer for UI updates
+    # タイマー開始
     start_timer()
+
+def _get_current_file_id():
+    """現在のファイルIDを取得（ファイルパスまたは一意のID）"""
+    if bpy.data.filepath:
+        return bpy.path.basename(bpy.data.filepath)
+    else:
+        # 新規ファイルの場合は、一意のIDを生成
+        import uuid
+        return f"unsaved_file_{uuid.uuid4().hex[:8]}"
 
 @persistent
 def save_handler(dummy):
@@ -300,13 +372,20 @@ def update_time_callback():
     return 1.0  # Run again in 1 second
 
 def on_blender_exit():
-    """Function called when Blender is closing"""
     global time_data
     if time_data:
-        print("Blender is closing. Ending active sessions.")
-        time_data.end_active_sessions()
-        time_data.save_data()
-        print("Final time data saved.")
+        print("Blender is closing. Attempting to save final state.")
+        # アクティブセッションを終了
+        ended = time_data.end_active_sessions()
+        if ended:
+            # データを保存（保存されない可能性が高いが試行）
+            time_data.save_data()
+            print(f"Final time data saved, but may not persist: {time_data.get_formatted_total_time()} total")
+            # 「最後のセッションは終了した」フラグを設定（将来のために）
+            time_data.last_exit_clean = True
+            time_data.save_data()
+        else:
+            print("No active sessions to end.")
 
 def delayed_start():
     """Start the timer after Blender is fully initialized"""
