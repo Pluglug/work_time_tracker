@@ -26,6 +26,25 @@ UNSAVED_WARNING_THRESHOLD = 10 * 60  # 10 minutes in seconds
 time_data = None
 timer = None
 
+def blend_time_data():
+    """Get time tracking data for current blend file, create if doesn't exist"""
+    import bpy
+    name = TEXT_NAME
+    if name not in bpy.data.texts:
+        t = bpy.data.texts.new(name)
+        # Initialize with empty data
+        data = {
+            'total_time': 0,
+            'last_save_time': time.time(),
+            'sessions': [],
+            'file_creation_time': time.time(),
+            'file_id': 'unsaved_file'
+        }
+        t.write(json.dumps(data, indent=2))
+        print(f"Created new time tracking data text block: {name}")
+    
+    return bpy.data.texts[name]
+
 class TimeData:
     def __init__(self):
         # Default values
@@ -134,8 +153,9 @@ class TimeData:
         self.last_save_time = current_time
         
         # Update file_id if needed
-        if bpy.data.filepath and not self.file_id:
-            self.file_id = bpy.path.basename(bpy.data.filepath)
+        filepath = getattr(bpy.data, 'filepath', '')
+        if filepath and not self.file_id:
+            self.file_id = bpy.path.basename(filepath)
         
         data = {
             'total_time': self.total_time,
@@ -145,8 +165,8 @@ class TimeData:
             'file_id': self.file_id
         }
         
-        # Save to text block
-        text_block = self._get_text_block(create=True)
+        # Use the safer text block getter
+        text_block = blend_time_data()
         if text_block:
             text_block.clear()
             text_block.write(json.dumps(data, indent=2))
@@ -496,7 +516,7 @@ def unregister():
     # Stop timer
     stop_timer()
     
-    # Unregister handlers
+    # Unregister handlers - important to remove these first
     if load_handler in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(load_handler)
     if save_handler in bpy.app.handlers.save_post:
@@ -508,8 +528,11 @@ def unregister():
     except:
         pass
     
+    # Unregister classes last
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+        
+    print("Time Tracker unregistered.")
 
 if __name__ == "__main__":
     register()
