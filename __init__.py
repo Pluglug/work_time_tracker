@@ -61,6 +61,9 @@ class TimeData:
         else:
             self.file_id = "unsaved_file"
         
+        print(f"Current file path: {bpy.data.filepath}")
+        print(f"Setting file_id to: {self.file_id}")
+        
         # Try to load existing data
         text_block = self._get_text_block()
         if text_block and text_block.as_string():
@@ -180,12 +183,21 @@ def load_handler(dummy):
     
     print("load_handler called for file:", bpy.data.filepath)
     
+    # Important: Load data first to get previous sessions,
+    # then create a new session
+    
     # Initialize time_data if it doesn't exist
     if time_data is None:
         time_data = TimeData()
     
-    # Load existing data
+    # We must ensure data is loaded before creating a new session
+    # so we preserve previous sessions
     time_data.ensure_loaded()
+    
+    # Now update file_id if file has a path (might have been saved since initial load)
+    if bpy.data.filepath:
+        time_data.file_id = bpy.path.basename(bpy.data.filepath)
+        print(f"Updated file_id to: {time_data.file_id}")
     
     # Start a new session
     time_data.start_session()
@@ -203,6 +215,12 @@ def save_handler(dummy):
         print("save_handler called for file:", bpy.data.filepath)
         # Ensure data is loaded
         time_data.ensure_loaded()
+        
+        # Update file_id when file is saved
+        if bpy.data.filepath:
+            old_id = time_data.file_id
+            time_data.file_id = bpy.path.basename(bpy.data.filepath)
+            print(f"File saved: Updated file_id from {old_id} to {time_data.file_id}")
         
         # Just update the current session (don't end it) and save
         # No new session should be created on save
@@ -228,6 +246,14 @@ def delayed_start():
     """Start the timer after Blender is fully initialized"""
     if time_data:
         time_data.ensure_loaded()
+        # Debug - check if we have the correct file_id
+        if bpy.data.filepath:
+            current_file = bpy.path.basename(bpy.data.filepath)
+            if time_data.file_id != current_file:
+                print(f"Warning: file_id mismatch. Expected {current_file}, got {time_data.file_id}")
+                time_data.file_id = current_file
+                time_data.save_data()
+                print(f"Corrected file_id to {time_data.file_id}")
     start_timer()
     return None  # Don't repeat
 
@@ -405,6 +431,10 @@ def register():
     # Initialize time data but don't load data yet
     global time_data
     time_data = TimeData()
+    
+    # Debug info
+    print("Time Tracker registered. Version 1.1")
+    print(f"Current file: {bpy.data.filepath}")
     
     # Set a timer to start the actual timer after Blender is initialized
     bpy.app.timers.register(delayed_start, first_interval=1.0)
