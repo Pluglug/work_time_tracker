@@ -2,7 +2,7 @@ bl_info = {
     "name": "Blender 作業時間トラッカー",
     "description": "Blender内での作業時間を追跡し、視覚化するアドオン",
     "author": "Your Name",
-    "version": (0, 1),
+    "version": (0, 2),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > Time",
     "category": "System",
@@ -13,10 +13,8 @@ import json
 import time
 import uuid
 
-# 隠しテキストブロックの名前
 HIDDEN_TEXT_NAME = ".hidden_work_time.json"
 
-# 作業時間・セッション情報を管理するクラス
 class TimeData:
     def __init__(self):
         self.total_time = 0.0         # 累積作業時間（秒）
@@ -27,9 +25,12 @@ class TimeData:
         self.file_id = str(uuid.uuid4())
     
     def start_session(self):
-        self.current_session_start = time.time()
-        if self.file_creation_time is None:
-            self.file_creation_time = self.current_session_start
+        # すでにセッションが開始されている場合は何もしない
+        if self.current_session_start is None:
+            self.current_session_start = time.time()
+            if self.file_creation_time is None:
+                self.file_creation_time = self.current_session_start
+            print("セッション開始:", self.current_session_start)
     
     def end_session(self):
         if self.current_session_start is not None:
@@ -41,10 +42,12 @@ class TimeData:
                 "duration": duration
             })
             self.total_time += duration
+            print("セッション終了:", end_time, " 期間:", duration)
             self.current_session_start = None
             
     def update_save_time(self):
         self.last_save_time = time.time()
+        print("保存時刻更新:", self.last_save_time)
     
     def get_current_session_time(self):
         if self.current_session_start is not None:
@@ -69,10 +72,8 @@ class TimeData:
         self.file_creation_time = data.get("file_creation_time")
         self.file_id = data.get("file_id", str(uuid.uuid4()))
 
-# グローバル変数でTimeDataのインスタンスを保持
 global_time_data = TimeData()
 
-# 隠しテキストブロックからデータを読み込む／なければ新規作成
 def load_hidden_text():
     text = bpy.data.texts.get(HIDDEN_TEXT_NAME)
     if text is None:
@@ -86,7 +87,6 @@ def load_hidden_text():
             print("Error loading time data:", e)
     return text
 
-# 隠しテキストブロックにデータを書き込む
 def save_hidden_text():
     text = bpy.data.texts.get(HIDDEN_TEXT_NAME)
     if text is None:
@@ -96,27 +96,24 @@ def save_hidden_text():
 
 # --- ハンドラー --- #
 
-# ファイルロード時にセッションを開始
 def on_load_post(dummy):
     print("ファイルロード完了: セッション開始")
     load_hidden_text()
-    global_time_data.start_session()
+    global_time_data.start_session()  # セッションはロード時にのみ開始
     save_hidden_text()
     return None
 
-# ファイル保存時に現在のセッションを終了し、保存時間を更新、その後新たなセッションを開始
 def on_save_post(dummy):
-    print("ファイル保存完了: 保存時刻更新とセッション更新")
-    global_time_data.end_session()
+    print("ファイル保存完了: 保存時刻更新のみ")
+    # セッションを終了せず、現在のセッションを継続
     global_time_data.update_save_time()
-    global_time_data.start_session()
     save_hidden_text()
     return None
 
-# 1秒ごとにタイマーで更新（UI反映や定期保存）
 def update_timer():
+    # タイマーではセッションの作成や終了は行わず、データ保存のみを行う
     save_hidden_text()
-    return 1.0  # 次回呼び出しまでの秒数
+    return 1.0
 
 # --- UIパネル --- #
 class TIME_PT_Panel(bpy.types.Panel):
@@ -129,40 +126,34 @@ class TIME_PT_Panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
 
-        # 合計作業時間（現在セッションも含む）
         total_time = global_time_data.total_time + global_time_data.get_current_session_time()
         minutes, seconds = divmod(int(total_time), 60)
         hours, minutes = divmod(minutes, 60)
         layout.label(text=f"合計作業時間: {hours}h {minutes}m {seconds}s")
         
-        # 現在のセッション時間
         current = global_time_data.get_current_session_time()
         cmin, csec = divmod(int(current), 60)
         ch, cmin = divmod(cmin, 60)
         layout.label(text=f"現在セッション時間: {ch}h {cmin}m {csec}s")
         
-        # 最後の保存からの経過時間
         if global_time_data.last_save_time:
             elapsed = time.time() - global_time_data.last_save_time
             emin, esec = divmod(int(elapsed), 60)
             eh, emin = divmod(emin, 60)
             layout.label(text=f"最後の保存から: {eh}h {emin}m {esec}s")
-            if elapsed > 600:  # 10分以上未保存なら警告
+            if elapsed > 600:
                 row = layout.row()
                 row.alert = True
                 row.label(text="警告: 10分以上未保存です!")
         else:
             layout.label(text="保存情報なし")
         
-        # 時間データのリセット・レポート出力ボタン
         row = layout.row()
         row.operator("time.reset_data", text="時間データリセット")
         row = layout.row()
         row.operator("time.export_report", text="Markdownレポート出力")
 
 # --- オペレーター --- #
-
-# 時間データリセットオペレーター
 class TIME_OT_ResetData(bpy.types.Operator):
     bl_idname = "time.reset_data"
     bl_label = "時間データリセット"
@@ -174,19 +165,16 @@ class TIME_OT_ResetData(bpy.types.Operator):
         self.report({'INFO'}, "時間データをリセットしました。")
         return {'FINISHED'}
 
-# Markdownレポート出力オペレーター
 class TIME_OT_ExportReport(bpy.types.Operator):
     bl_idname = "time.export_report"
     bl_label = "Markdownレポート出力"
 
     def execute(self, context):
         report = generate_report()
-        # レポートはコンソールに出力（必要に応じてファイル出力などに拡張可能）
         print(report)
         self.report({'INFO'}, "レポートをコンソールに出力しました。")
         return {'FINISHED'}
 
-# レポート生成関数
 def generate_report():
     report = []
     report.append("# 作業時間レポート")
