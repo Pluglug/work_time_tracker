@@ -2,7 +2,7 @@ bl_info = {
     "name": "Blender 作業時間トラッカー",
     "description": "Blender内での作業時間を追跡し、視覚化するアドオン",
     "author": "Your Name",
-    "version": (0, 2),
+    "version": (0, 3),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar > Time",
     "category": "System",
@@ -72,19 +72,27 @@ class TimeData:
         self.file_creation_time = data.get("file_creation_time")
         self.file_id = data.get("file_id", str(uuid.uuid4()))
 
+# グローバルなTimeDataインスタンス
 global_time_data = TimeData()
 
 def load_hidden_text():
     text = bpy.data.texts.get(HIDDEN_TEXT_NAME)
     if text is None:
+        # 存在しなければ新規作成して初期データを書き込み
         text = bpy.data.texts.new(HIDDEN_TEXT_NAME)
         text.write(json.dumps(global_time_data.to_dict()))
     else:
-        try:
-            data = json.loads(text.as_string())
-            global_time_data.from_dict(data)
-        except Exception as e:
-            print("Error loading time data:", e)
+        # テキスト内容が空でなければ読み込む
+        content = text.as_string().strip()
+        if content:
+            try:
+                data = json.loads(content)
+                global_time_data.from_dict(data)
+            except Exception as e:
+                print("Error loading time data:", e)
+        else:
+            # 空の場合は初期データを書き込む
+            text.write(json.dumps(global_time_data.to_dict()))
     return text
 
 def save_hidden_text():
@@ -111,7 +119,7 @@ def on_save_post(dummy):
     return None
 
 def update_timer():
-    # タイマーではセッションの作成や終了は行わず、データ保存のみを行う
+    # タイマーではセッションの作成や終了は行わず、定期的なデータ保存のみを行う
     save_hidden_text()
     return 1.0
 
