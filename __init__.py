@@ -15,6 +15,7 @@ import time
 import datetime
 import json
 import os
+import atexit
 from bpy.app.handlers import persistent
 
 # Constants
@@ -44,14 +45,35 @@ class TimeData:
             
     def start_session(self):
         """Start a new session - only call this during file load"""
-        if self.current_session_start is None:
-            self.current_session_start = time.time()
-            self.sessions.append({
-                'start': self.current_session_start,
-                'end': None,
-                'duration': 0
-            })
-            print(f"Started new session at {datetime.datetime.fromtimestamp(self.current_session_start)}")
+        # End any existing active sessions first
+        self.end_active_sessions()
+        
+        # Now start a new session
+        self.current_session_start = time.time()
+        self.sessions.append({
+            'start': self.current_session_start,
+            'end': None,
+            'duration': 0
+        })
+        print(f"Started new session at {datetime.datetime.fromtimestamp(self.current_session_start)}")
+        
+    def end_active_sessions(self):
+        """End any active sessions - useful when switching files or closing Blender"""
+        end_time = time.time()
+        session_ended = False
+        
+        for session in self.sessions:
+            if session['end'] is None:
+                session['end'] = end_time
+                session['duration'] = session['end'] - session['start']
+                print(f"Ended session: {datetime.datetime.fromtimestamp(session['start'])} to {datetime.datetime.fromtimestamp(session['end'])}")
+                session_ended = True
+                
+        if session_ended:
+            # Update total time
+            self.total_time = sum(session.get('duration', 0) for session in self.sessions)
+            return True
+        return False
 
     def load_data(self):
         """Load time tracking data from text block"""
@@ -181,10 +203,8 @@ def load_handler(dummy):
     """Handler called when a blend file is loaded"""
     global time_data
     
-    print("load_handler called for file:", bpy.data.filepath)
-    
-    # Important: Load data first to get previous sessions,
-    # then create a new session
+    filepath = getattr(bpy.data, 'filepath', '')
+    print(f"load_handler called for file: {filepath}")
     
     # Initialize time_data if it doesn't exist
     if time_data is None:
@@ -194,12 +214,17 @@ def load_handler(dummy):
     # so we preserve previous sessions
     time_data.ensure_loaded()
     
-    # Now update file_id if file has a path (might have been saved since initial load)
-    if bpy.data.filepath:
-        time_data.file_id = bpy.path.basename(bpy.data.filepath)
-        print(f"Updated file_id to: {time_data.file_id}")
+    # Detect if this is a NEW file (read_homefile or new Blender session)
+    if not filepath:
+        # This is likely a new unsaved file, so we should reset the file_id
+        print("Detected new unsaved file - resetting file_id")
+        time_data.file_id = "unsaved_file"
+    elif filepath and time_data.file_id != bpy.path.basename(filepath):
+        # This is a different file than what we had before
+        print(f"Detected new file: {bpy.path.basename(filepath)}")
+        time_data.file_id = bpy.path.basename(filepath)
     
-    # Start a new session
+    # Start a new session (this will automatically end any active session)
     time_data.start_session()
     
     # Save the updated data
@@ -236,11 +261,32 @@ def update_time_callback():
         # ONLY update the current session, NEVER create a new one here
         time_data.update_session()
         
+        # Check if filepath has changed, which might indicate new file via "Save As"
+        filepath = getattr(bpy.data, 'filepath', '')
+        if filepath and time_data.file_id != bpy.path.basename(filepath):
+            print(f"Detected file path change during timer: {time_data.file_id} -> {bpy.path.basename(filepath)}")
+            # End current sessions (they belong to the old file)
+            time_data.end_active_sessions()
+            # Update file ID
+            time_data.file_id = bpy.path.basename(filepath)
+            # Start a new session for the new file
+            time_data.start_session()
+            time_data.save_data()
+        
         # Force redraw of UI
         for area in bpy.context.screen.areas:
             if area.type == 'VIEW_3D':
                 area.tag_redraw()
     return 1.0  # Run again in 1 second
+
+def on_blender_exit():
+    """Function called when Blender is closing"""
+    global time_data
+    if time_data:
+        print("Blender is closing. Ending active sessions.")
+        time_data.end_active_sessions()
+        time_data.save_data()
+        print("Final time data saved.")
 
 def delayed_start():
     """Start the timer after Blender is fully initialized"""
@@ -434,12 +480,19 @@ def register():
     
     # Debug info
     print("Time Tracker registered. Version 1.1")
-    print(f"Current file: {bpy.data.filepath}")
     
     # Set a timer to start the actual timer after Blender is initialized
     bpy.app.timers.register(delayed_start, first_interval=1.0)
+    
+    # Register a handler for Blender exit
+    atexit.register(on_blender_exit)
 
 def unregister():
+    # End any active sessions before unregistering
+    if time_data:
+        time_data.end_active_sessions()
+        time_data.save_data()
+    
     # Stop timer
     stop_timer()
     
@@ -448,6 +501,12 @@ def unregister():
         bpy.app.handlers.load_post.remove(load_handler)
     if save_handler in bpy.app.handlers.save_post:
         bpy.app.handlers.save_post.remove(save_handler)
+    
+    # Unregister atexit handler (if possible)
+    try:
+        atexit.unregister(on_blender_exit)
+    except:
+        pass
     
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
