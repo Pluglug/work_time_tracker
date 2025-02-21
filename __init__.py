@@ -28,37 +28,48 @@ timer = None
 
 def blend_time_data():
     """Get time tracking data for current blend file, create if doesn't exist"""
-    import bpy
-    import random
-    import string
-    name = f"{TEXT_NAME}{''.join(random.choices(string.ascii_letters + string.digits, k=8))}.json"
-    # Look for any existing text block starting with TEXT_NAME
-    existing_text = None
+    # Blendファイルごとに一意なテキストブロック名を使用
+    if bpy.data.filepath:
+        # ファイルパスから一貫した名前を生成
+        base_name = bpy.path.basename(bpy.data.filepath)
+        name = f"{TEXT_NAME}{base_name}.json"
+    else:
+        # 未保存ファイル用の固定名
+        name = f"{TEXT_NAME}unsaved.json"
+    
+    # Look for existing text block with exact match
+    if name in bpy.data.texts:
+        print(f"Found existing time tracking data: {name}")
+        text_block = bpy.data.texts[name]
+        text_block.use_fake_user = True
+        return text_block
+    
+    # 同じファイルでもテキストブロック名が違う可能性があるため、
+    # プレフィックスとファイル名の一部で検索
+    file_part = bpy.path.basename(bpy.data.filepath).split(".")[0] if bpy.data.filepath else "unsaved"
+    
+    for text in bpy.data.texts:
+        if text.name.startswith(TEXT_NAME) and file_part in text.name:
+            print(f"Found matching time tracking data: {text.name}")
+            text.use_fake_user = True
+            return text
+    
+    # それでも見つからない場合は一般的なプレフィックス検索
     for text in bpy.data.texts:
         if text.name.startswith(TEXT_NAME):
-            existing_text = text
-            name = text.name
-            break
+            print(f"Found general time tracking data: {text.name}")
+            text.use_fake_user = True
+            return text
     
     # Create new if none found
-    if not existing_text:
-        t = bpy.data.texts.new(name)
-        t.use_fake_user = True
-        # Initialize with empty data
-        data = {
-            'total_time': 0,
-            'last_save_time': time.time(),
-            'sessions': [],
-            'file_creation_time': time.time(),
-            'file_id': 'unsaved_file',
-            'version': 2,
-        }
-        t.write(json.dumps(data, indent=2))
-        print(f"Created new time tracking data text block: {name}")
-    else:
-        existing_text.use_fake_user = True
-
-    return bpy.data.texts[name]
+    print(f"Creating new time tracking data: {name}")
+    t = bpy.data.texts.new(name)
+    t.use_fake_user = True
+    
+    # 空のデータを書き込み（実際のデータはTimeDataから更新される）
+    t.write("{}")
+    
+    return t
 
 class TimeData:
     def __init__(self):
@@ -70,6 +81,25 @@ class TimeData:
         self.file_id = None  # Store a unique ID for this blend file
         self.current_session_start = None
         self.data_loaded = False
+        self.last_exit_clean = False
+    
+    def reset(self):
+        """Reset all data to defaults but keep file_id"""
+        old_file_id = self.file_id  # 現在のファイルIDを保持
+        
+        self.total_time = 0
+        self.last_save_time = time.time()
+        self.sessions = []
+        self.file_creation_time = time.time()
+        self.current_session_start = None
+        self.last_exit_clean = False
+        
+        # ファイルIDは変更しない
+        if not old_file_id:
+            if bpy.data.filepath:
+                self.file_id = bpy.path.basename(bpy.data.filepath)
+            else:
+                self.file_id = "unsaved_file"
     
     def ensure_loaded(self):
         """Make sure data is loaded (safe to call after Blender is fully initialized)"""
@@ -122,60 +152,60 @@ class TimeData:
         return ended_count
 
     def load_data(self):
-        """テキストブロックからデータを読み込む - Blender再起動対応"""
-        # ファイルIDの設定
-        if bpy.data.filepath:
-            self.file_id = bpy.path.basename(bpy.data.filepath)
-        else:
-            # 新規ファイルには一意のIDを割り当て
-            import uuid
-            self.file_id = f"unsaved_file_{uuid.uuid4().hex[:8]}"
+        """テキストブロックからデータを読み込む"""
+        # 現在のファイルIDを保存（ファイルの識別用）
+        old_file_id = self.file_id
         
-        print(f"Current file path: {bpy.data.filepath}")
-        print(f"Setting file_id to: {self.file_id}")
+        # ファイルIDを現在のファイルに基づいて設定
+        if bpy.data.filepath:
+            current_file_id = bpy.path.basename(bpy.data.filepath)
+        else:
+            current_file_id = "unsaved_file"
+        
+        print(f"Loading data for file: {current_file_id}")
+        
+        # 重要: データをリセットして、クリーンな状態から始める
+        self.reset()
+        
+        # 設定したファイルIDを使用
+        self.file_id = current_file_id
         
         # テキストブロックからデータ読み込み
-        text_block = blend_time_data()  # 必ず有効なテキストブロックを取得
+        text_block = blend_time_data()
         
         if text_block and text_block.as_string().strip():
             try:
                 data = json.loads(text_block.as_string())
-                # データバージョンチェック（将来の互換性のため）
-                version = data.get('version', 1)
                 
-                self.total_time = data.get('total_time', 0)
-                self.last_save_time = data.get('last_save_time', time.time())
-                self.sessions = data.get('sessions', [])
-                self.file_creation_time = data.get('file_creation_time', time.time())
+                # データバージョンチェック (将来の互換性のため)
+                version = data.get('version', 1)
                 stored_file_id = data.get('file_id')
                 
-                # 現在のファイルがテキストブロックと一致するか確認
+                # ファイルIDが一致する場合のみデータを読み込む
                 if stored_file_id == self.file_id:
+                    print(f"Found matching data for {self.file_id}")
+                    
+                    # データの内容をすべて読み込む
+                    self.total_time = data.get('total_time', 0)
+                    self.last_save_time = data.get('last_save_time', time.time())
+                    self.sessions = data.get('sessions', [])
+                    self.file_creation_time = data.get('file_creation_time', time.time())
+                    self.last_exit_clean = data.get('last_exit_clean', False)
+                    
                     print(f"Loaded time data: {len(self.sessions)} sessions, {self.format_time(self.total_time)} total time")
                 else:
                     print(f"File ID mismatch: stored={stored_file_id}, current={self.file_id}")
-                    # 同じBlendファイルを開いていても、パスが変更されている可能性
-                    if bpy.data.filepath and stored_file_id and not stored_file_id.startswith("unsaved_file"):
-                        print("Attempting to reconcile file IDs")
-                        # 統計データは保持するが、セッションはリセット
-                        self.sessions = []
-                    else:
-                        # 未保存ファイルまたは新規ファイルとして扱う
-                        self.total_time = 0
-                        self.sessions = []
-                        self.file_creation_time = time.time()
+                    # ファイルが違う場合は既に実行したresetの値を使用
                 
-                self.current_session_start = None  # セッション開始はリセット
+                # 現在のセッション開始はリセット
+                self.current_session_start = None
+                
             except (json.JSONDecodeError, ValueError) as e:
                 print(f"Error parsing JSON: {e}")
-                # JSONが無効な場合はデフォルト値を使用
-                pass
+                # JSONが無効な場合はデフォルト値を使用（resetで設定済み）
         else:
-            # テキストブロックが存在しない/空の場合は新規作成
-            self.file_creation_time = time.time()
-            print(f"No existing time data found, created new data")
-            # 初期テキストブロック作成
-            self.save_data()
+            # テキストブロックが存在しない場合
+            print(f"No existing time data found for {self.file_id}, using new data")
     
     def update_session(self):
         """Update the current session duration"""
@@ -271,59 +301,46 @@ def load_handler(dummy):
     """Handler called when a blend file is loaded"""
     global time_data
     
-    # Wait a moment to ensure Blender is fully loaded
-    if not hasattr(bpy.data, 'filepath'):
+    # Blenderが完全に初期化されるまで待機
+    if not hasattr(bpy, 'data') or not hasattr(bpy.data, 'filepath'):
         print("load_handler called too early, bpy.data.filepath not available")
         return
     
     filepath = bpy.data.filepath
     print(f"load_handler called for file: {filepath}")
     
-    # Initialize time_data if it doesn't exist
-    if time_data is None:
-        time_data = TimeData()
-
+    # Debug: コールスタック深度確認
     import traceback
     stack = traceback.extract_stack()
     print(f"Call stack depth: {len(stack)}")
-
-    # We must ensure data is loaded before creating a new session
-    time_data.ensure_loaded()
-
-    # 前回のセッションが終了していない場合は終了させる
-    # これにより、前回のBlender終了時に記録できなかったセッション終了を補完
-    ended_sessions = time_data.end_active_sessions()
-    if ended_sessions:
-        print(f"Ended {ended_sessions} incomplete sessions from previous run")
     
-    # ファイルID検証とセッション開始ロジックの分離
-    current_file_id = _get_current_file_id()
+    # 新規TimeDataオブジェクト作成は最初だけ
+    if time_data is None:
+        time_data = TimeData()
+        print("Created new TimeData object")
     
-    if time_data.file_id != current_file_id:
-        print(f"File change detected: {time_data.file_id} -> {current_file_id}")
-        time_data.file_id = current_file_id
-        
-        # 新規セッション作成の条件チェック: セッションが存在しないか、すべてのセッションが終了している
-        if not time_data.sessions or all(session.get('end') is not None for session in time_data.sessions):
-            time_data.start_session()
-            print(f"Started new session for {time_data.file_id}")
-        else:
-            print(f"Active session already exists, not creating a new one")
+    # ファイルID記録
+    previous_file_id = time_data.file_id
+    
+    # テキストブロックからデータを読み込む
+    # 重要: この中でresetが呼ばれ、データが適切にクリアされる
+    time_data.load_data()
+    time_data.data_loaded = True
+    
+    # 前回の未終了セッションを終了（新しいファイルの場合は対象なし）
+    if time_data.sessions and any(session.get('end') is None for session in time_data.sessions):
+        ended = time_data.end_active_sessions()
+        print(f"Ended {ended} incomplete sessions from previous run")
+    
+    # 新しいセッションを開始
+    time_data.start_session()
+    print(f"Started new session for {time_data.file_id}")
     
     # データを保存
     time_data.save_data()
     
     # タイマー開始
     start_timer()
-
-def _get_current_file_id():
-    """現在のファイルIDを取得（ファイルパスまたは一意のID）"""
-    if bpy.data.filepath:
-        return bpy.path.basename(bpy.data.filepath)
-    else:
-        # 新規ファイルの場合は、一意のIDを生成
-        import uuid
-        return f"unsaved_file_{uuid.uuid4().hex[:8]}"
 
 @persistent
 def save_handler(dummy):
