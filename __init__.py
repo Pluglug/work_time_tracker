@@ -22,7 +22,7 @@ from bl_ui.space_topbar import TOPBAR_HT_upper_bar
 
 # Constants
 TEXT_NAME = ".work_time_tracker"
-UNSAVED_WARNING_THRESHOLD = 1 * 60  # 10 minutes in seconds
+UNSAVED_WARNING_THRESHOLD = 10 * 60  # 10 minutes in seconds
 DATA_VERSION = 1  # データ形式のバージョン管理用
 
 # Global variables
