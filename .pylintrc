@@ -23,6 +23,9 @@ disable=
     invalid-name,               # 命名規則の警告を抑制
     wrong-import-order,         # importの順序警告を抑制
     ungrouped-imports,          # importのグループ化警告を抑制
+    trailing-whitespace,        # 行末の空白を許容
+    line-too-long,              # 行の長さ制限を緩和
+    ; bad-continuation,           # バックスラッシュによる行継続を許容
 
 [FORMAT]
 # 行の長さ制限（black互換）
