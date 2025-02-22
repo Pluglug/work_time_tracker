@@ -18,15 +18,17 @@ import os
 import atexit
 from bpy.app.handlers import persistent
 
+from bl_ui.space_topbar import TOPBAR_HT_upper_bar
+
 # Constants
 TEXT_NAME = ".work_time_tracker"
-UNSAVED_WARNING_THRESHOLD = 10 * 60  # 10 minutes in seconds
+UNSAVED_WARNING_THRESHOLD = 1 * 60  # 10 minutes in seconds
 DATA_VERSION = 1  # データ形式のバージョン管理用
 
 # Global variables
 time_data = None
 timer = None
-
+original_draw_right = None  # TOPBAR_HT_upper_bar.draw_right
 
 def blend_time_data():
     """Get time tracking data for current blend file, create if doesn't exist"""
@@ -467,10 +469,10 @@ class VIEW3D_PT_time_tracker(bpy.types.Panel):
             row.label(text="Time Since Save:")
 
             # Show warning if unsaved for too long
-            if time_since_save > UNSAVED_WARNING_THRESHOLD:
-                row_alert = layout.row()
-                row_alert.alert = True
-                row_alert.label(text=f"⚠️ {time_data.get_formatted_time_since_save()}")
+            if context.blend_data.is_dirty and time_since_save > UNSAVED_WARNING_THRESHOLD:
+                # row_alert = layout.row()
+                row.alert = True
+                row.label(text=f"{time_data.get_formatted_time_since_save()}")
                 row_alert = layout.row()
                 row_alert.alert = True
                 row_alert.label(text="Consider saving your work!")
@@ -494,6 +496,39 @@ class VIEW3D_PT_time_tracker(bpy.types.Panel):
 
             # Export button
             layout.operator("timetracker.export_data", text="Export Time Report")
+
+
+def time_tracker_draw(self, context):
+    """トップバーに表示するコンパクトなUI"""
+    if not time_data:
+        return
+
+    layout = self.layout
+
+    row = layout.row(align=True)
+
+    time_since_save = time_data.get_time_since_last_save()
+    if not context.blend_data.is_saved:
+        row_alert = row.row(align=True)
+        row_alert.alert = True
+        row_alert.label(text="Unsaved File")  # , icon='FILE_TICK')
+    elif context.blend_data.is_dirty and time_since_save > UNSAVED_WARNING_THRESHOLD:
+        row_alert = row.row(align=True)
+        row_alert.alert = True
+        row_alert.label(text="Save Pending")  # , icon='FILE_TICK')
+
+    total_time = time_data.total_time / 3600  # 時間単位に変換
+    session_time = time_data.get_current_session_time() / 60  # 分単位に変換
+
+    compact_text = f"{total_time:.1f}h ({session_time:.0f}m)"
+
+    row.popover(
+        panel="VIEW3D_PT_time_tracker",
+        text=compact_text,
+        icon='TIME'
+    )
+
+    original_draw_right(self, context)
 
 
 class TIMETRACKER_OT_reset_data(bpy.types.Operator):
@@ -602,13 +637,20 @@ def register():
     time_data = TimeData()
 
     # Debug info
-    print("Time Tracker registered. Version 1.1")
+    print(f"Time Tracker registered. Version {bl_info['version']}")
 
     # Set a timer to start the actual timer after Blender is initialized
     bpy.app.timers.register(delayed_start, first_interval=1.0)
 
+    global original_draw_right
+    original_draw_right = TOPBAR_HT_upper_bar.draw_right
+    TOPBAR_HT_upper_bar.draw_right = time_tracker_draw
+
 
 def unregister():
+    if original_draw_right:
+        TOPBAR_HT_upper_bar.draw_right = original_draw_right
+
     # End any active sessions before unregistering
     if time_data:
         time_data.end_active_sessions()
