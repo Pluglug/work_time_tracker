@@ -19,8 +19,9 @@ import atexit
 from bpy.app.handlers import persistent
 
 # Constants
-TEXT_NAME = ".hidden_work_time_"
+TEXT_NAME = ".work_time_tracker"
 UNSAVED_WARNING_THRESHOLD = 10 * 60  # 10 minutes in seconds
+DATA_VERSION = 2  # データ形式のバージョン管理用
 
 # Global variables
 time_data = None
@@ -28,48 +29,48 @@ timer = None
 
 def blend_time_data():
     """Get time tracking data for current blend file, create if doesn't exist"""
-    # Blendファイルごとに一意なテキストブロック名を使用
-    if bpy.data.filepath:
-        # ファイルパスから一貫した名前を生成
-        base_name = bpy.path.basename(bpy.data.filepath)
-        name = f"{TEXT_NAME}{base_name}.json"
-    else:
-        # 未保存ファイル用の固定名
-        name = f"{TEXT_NAME}unsaved.json"
+    name = TEXT_NAME + ".json"
     
-    # Look for existing text block with exact match
+    # 既存のテキストブロックを探す
+    text_block = None
+    
+    # まず完全一致で検索
     if name in bpy.data.texts:
-        print(f"Found existing time tracking data: {name}")
         text_block = bpy.data.texts[name]
-        text_block.use_fake_user = True
-        return text_block
+        print(f"Found primary time tracking data: {name}")
+    else:
+        # 代替のテキストブロックを検索
+        for text in bpy.data.texts:
+            if text.name.startswith(TEXT_NAME):
+                text_block = text
+                # 名前を標準化
+                try:
+                    text.name = name
+                    print(f"Renamed time tracking data from {text.name} to {name}")
+                except Exception as e:
+                    print(f"Warning: Could not rename text block: {e}")
+                break
     
-    # 同じファイルでもテキストブロック名が違う可能性があるため、
-    # プレフィックスとファイル名の一部で検索
-    file_part = bpy.path.basename(bpy.data.filepath).split(".")[0] if bpy.data.filepath else "unsaved"
+    # テキストブロックが見つからない場合は新規作成
+    if not text_block:
+        text_block = bpy.data.texts.new(name)
+        print(f"Created new time tracking data: {name}")
+        
+        # 初期データを設定
+        initial_data = {
+            'version': DATA_VERSION,
+            'total_time': 0,
+            'last_save_time': time.time(),
+            'sessions': [],
+            'file_creation_time': time.time(),
+            'file_id': bpy.path.basename(bpy.data.filepath) if bpy.data.filepath else 'unsaved_file'
+        }
+        text_block.write(json.dumps(initial_data, indent=2))
     
-    for text in bpy.data.texts:
-        if text.name.startswith(TEXT_NAME) and file_part in text.name:
-            print(f"Found matching time tracking data: {text.name}")
-            text.use_fake_user = True
-            return text
+    # fake_userフラグを確実に設定
+    text_block.use_fake_user = True
     
-    # それでも見つからない場合は一般的なプレフィックス検索
-    for text in bpy.data.texts:
-        if text.name.startswith(TEXT_NAME):
-            print(f"Found general time tracking data: {text.name}")
-            text.use_fake_user = True
-            return text
-    
-    # Create new if none found
-    print(f"Creating new time tracking data: {name}")
-    t = bpy.data.texts.new(name)
-    t.use_fake_user = True
-    
-    # 空のデータを書き込み（実際のデータはTimeDataから更新される）
-    t.write("{}")
-    
-    return t
+    return text_block
 
 class TimeData:
     def __init__(self):
