@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Work Time Tracker",
-    "author": "Your Name",
-    "version": (1, 1),
+    "author": "Pluglug, Claude 3.5 Sonnet",
+    "version": (1, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Time Tracker",
     "description": "Tracks working time in Blender sessions",
@@ -21,7 +21,7 @@ from bpy.app.handlers import persistent
 # Constants
 TEXT_NAME = ".work_time_tracker"
 UNSAVED_WARNING_THRESHOLD = 10 * 60  # 10 minutes in seconds
-DATA_VERSION = 2  # データ形式のバージョン管理用
+DATA_VERSION = 1  # データ形式のバージョン管理用
 
 # Global variables
 time_data = None
