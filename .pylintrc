@@ -1,0 +1,42 @@
+[MASTER]
+# 無視するディレクトリ
+ignore=__pycache__, .vscode, _source, .git, .env, venv
+
+# 無効化するチェック
+disable=
+    # コードの柔軟性を確保するための無効化
+    too-few-public-methods,      # 少ないメソッド数を許容
+    missing-module-docstring,    # モジュールドキュメントの省略を許容
+    missing-function-docstring,  # 関数ドキュメントの省略を許容
+    missing-class-docstring,     # クラスドキュメントの省略を許容
+    
+    # 開発効率のための無効化
+    fixme,                      # TODOコメントを許容
+    logging-format-interpolation, # f-string以外のログフォーマットを許容
+    
+    # 外部ライブラリ関連の警告を抑制
+    no-member,                  # 動的に追加されるメンバーを許容
+    no-name-in-module,          # モジュール内の名前解決エラーを抑制
+    c-extension-no-member,      # C拡張モジュールのメンバー警告を抑制
+
+    # スタイルの柔軟性を確保
+    invalid-name,               # 命名規則の警告を抑制
+    wrong-import-order,         # importの順序警告を抑制
+    ungrouped-imports,          # importのグループ化警告を抑制
+
+[FORMAT]
+# 行の長さ制限（black互換）
+max-line-length=88
+
+[BASIC]
+# 変数名の最小文字数
+variable-rgx=[a-z_][a-z0-9_]{1,30}$
+
+[MESSAGES CONTROL]
+# 警告の重大度設定
+confidence=HIGH
+
+[REPORTS]
+# 出力フォーマット
+output-format=text
+reports=no
