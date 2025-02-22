@@ -329,36 +329,18 @@ def load_handler(dummy):
     if not hasattr(bpy, 'data') or not hasattr(bpy.data, 'filepath'):
         print("load_handler called too early, bpy.data.filepath not available")
         return
-    
-    filepath = bpy.data.filepath
-    print(f"load_handler called for file: {filepath}")
-    
-    # Debug: コールスタック深度確認
-    import traceback
-    stack = traceback.extract_stack()
-    print(f"Call stack depth: {len(stack)}")
-    
-    # 新規TimeDataオブジェクト作成は最初だけ
+
     if time_data is None:
         time_data = TimeData()
-        print("Created new TimeData object")
-    
-    # ファイルID記録
-    previous_file_id = time_data.file_id
-    
-    # テキストブロックからデータを読み込む
-    # 重要: この中でresetが呼ばれ、データが適切にクリアされる
-    # また、未終了のセッションは自動的にファイルの最終更新時間で終了処理される
+
+    # データを読み込み（この中でresetも実行される）
     time_data.load_data()
     time_data.data_loaded = True
-    
+
     # 新しいセッションを開始
     time_data.start_session()
-    print(f"Started new session for {time_data.file_id}")
-    
-    # データを保存
     time_data.save_data()
-    
+
     # タイマー開始
     start_timer()
 
@@ -408,21 +390,6 @@ def update_time_callback():
                 area.tag_redraw()
     return 1.0  # Run again in 1 second
 
-def on_blender_exit():
-    global time_data
-    if time_data:
-        print("Blender is closing. Attempting to save final state.")
-        # アクティブセッションを終了
-        ended = time_data.end_active_sessions()
-        if ended:
-            # データを保存（保存されない可能性が高いが試行）
-            time_data.save_data()
-            print(f"Final time data saved, but may not persist: {time_data.get_formatted_total_time()} total")
-            # 「最後のセッションは終了した」フラグを設定（将来のために）
-            time_data.last_exit_clean = True
-            time_data.save_data()
-        else:
-            print("No active sessions to end.")
 
 def delayed_start():
     """Start the timer after Blender is fully initialized"""
@@ -625,9 +592,7 @@ def register():
     
     # Set a timer to start the actual timer after Blender is initialized
     bpy.app.timers.register(delayed_start, first_interval=1.0)
-    
-    # Register a handler for Blender exit
-    atexit.register(on_blender_exit)
+
 
 def unregister():
     # End any active sessions before unregistering
@@ -643,13 +608,7 @@ def unregister():
         bpy.app.handlers.load_post.remove(load_handler)
     if save_handler in bpy.app.handlers.save_post:
         bpy.app.handlers.save_post.remove(save_handler)
-    
-    # Unregister atexit handler (if possible)
-    try:
-        atexit.unregister(on_blender_exit)
-    except:
-        pass
-    
+
     # Unregister classes last
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
