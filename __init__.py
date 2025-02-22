@@ -85,25 +85,25 @@ class TimeData:
         self.current_session_start = None
         self.data_loaded = False
         self.last_exit_clean = False
-    
+
     def reset(self):
         """Reset all data to defaults but keep file_id"""
         old_file_id = self.file_id  # 現在のファイルIDを保持
-        
+
         self.total_time = 0
         self.last_save_time = time.time()
         self.sessions = []
         self.file_creation_time = time.time()
         self.current_session_start = None
         self.last_exit_clean = False
-        
+
         # ファイルIDは変更しない
         if not old_file_id:
             if bpy.data.filepath:
                 self.file_id = bpy.path.basename(bpy.data.filepath)
             else:
                 self.file_id = "unsaved_file"
-    
+
     def ensure_loaded(self):
         """Make sure data is loaded (safe to call after Blender is fully initialized)"""
         if not self.data_loaded:
