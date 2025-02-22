@@ -159,8 +159,19 @@ class TimeData:
         # ファイルIDを現在のファイルに基づいて設定
         if bpy.data.filepath:
             current_file_id = bpy.path.basename(bpy.data.filepath)
+            
+            # ファイルの最終更新時間を取得（ファイルが存在する場合のみ）
+            try:
+                file_stat = os.stat(bpy.data.filepath)
+                last_modified = file_stat.st_mtime
+                file_exists = True
+            except (FileNotFoundError, OSError):
+                last_modified = time.time()
+                file_exists = False
         else:
             current_file_id = "unsaved_file"
+            last_modified = time.time()
+            file_exists = False
         
         print(f"Loading data for file: {current_file_id}")
         
@@ -191,6 +202,18 @@ class TimeData:
                     self.sessions = data.get('sessions', [])
                     self.file_creation_time = data.get('file_creation_time', time.time())
                     self.last_exit_clean = data.get('last_exit_clean', False)
+                    
+                    # 未終了のセッションに対して、ファイルの最終更新時間を終了時間として設定
+                    if file_exists and self.sessions:
+                        for session in self.sessions:
+                            if session.get('end') is None:
+                                # 最終更新時間をセッション終了時間として使用
+                                session['end'] = last_modified
+                                session['duration'] = session['end'] - session['start']
+                                print(f"Updated session #{session.get('id', '?')} end time using file's last modified time")
+                        
+                        # トータル時間を更新
+                        self.total_time = sum(session.get('duration', 0) for session in self.sessions)
                     
                     print(f"Loaded time data: {len(self.sessions)} sessions, {self.format_time(self.total_time)} total time")
                 else:
@@ -324,13 +347,9 @@ def load_handler(dummy):
     
     # テキストブロックからデータを読み込む
     # 重要: この中でresetが呼ばれ、データが適切にクリアされる
+    # また、未終了のセッションは自動的にファイルの最終更新時間で終了処理される
     time_data.load_data()
     time_data.data_loaded = True
-    
-    # 前回の未終了セッションを終了（新しいファイルの場合は対象なし）
-    if time_data.sessions and any(session.get('end') is None for session in time_data.sessions):
-        ended = time_data.end_active_sessions()
-        print(f"Ended {ended} incomplete sessions from previous run")
     
     # 新しいセッションを開始
     time_data.start_session()
@@ -433,6 +452,12 @@ def stop_timer():
     timer = None
     if time_data:
         time_data.save_data()
+
+def get_file_modification_time():
+    """ファイルの最終更新時間を取得"""
+    if bpy.data.filepath and os.path.exists(bpy.data.filepath):
+        return os.path.getmtime(bpy.data.filepath)
+    return None
 
 class VIEW3D_PT_time_tracker(bpy.types.Panel):
     """Time Tracker Panel"""
