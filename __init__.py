@@ -326,7 +326,7 @@ class TimeData:
 
 
 @persistent
-def load_handler(dummy):
+def load_handler(_dummy):
     """Handler called when a blend file is loaded"""
     global time_data
     
@@ -351,7 +351,7 @@ def load_handler(dummy):
 
 
 @persistent
-def save_handler(dummy):
+def save_handler(_dummy):
     """Handler called when a blend file is saved"""
     if time_data:
         print("save_handler called for file:", bpy.data.filepath)
@@ -612,7 +612,7 @@ class TIMETRACKER_OT_export_data(bpy.types.Operator):
 
 
 # Visual Time Graph class (to be implemented in view_3d_draw_handler)
-def draw_time_graph(self, context):
+def draw_time_graph(_self, _context):
     # This will be implemented to draw a visual time graph
     pass
 
