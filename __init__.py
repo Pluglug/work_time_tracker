@@ -507,16 +507,6 @@ def time_tracker_draw(self, context):
 
     row = layout.row(align=True)
 
-    time_since_save = time_data.get_time_since_last_save()
-    if not context.blend_data.is_saved:
-        row_alert = row.row(align=True)
-        row_alert.alert = True
-        row_alert.label(text="Unsaved File")  # , icon='FILE_TICK')
-    elif context.blend_data.is_dirty and time_since_save > UNSAVED_WARNING_THRESHOLD:
-        row_alert = row.row(align=True)
-        row_alert.alert = True
-        row_alert.label(text="Save Pending")  # , icon='FILE_TICK')
-
     total_time = time_data.total_time / 3600  # 時間単位に変換
     session_time = time_data.get_current_session_time() / 60  # 分単位に変換
 
@@ -528,7 +518,19 @@ def time_tracker_draw(self, context):
         icon='TIME'
     )
 
-    original_draw_right(self, context)
+    row.separator()
+
+    time_since_save = time_data.get_time_since_last_save()
+    if not context.blend_data.is_saved:
+        row_alert = row.row(align=True)
+        row_alert.alert = True
+        row_alert.label(text="Unsaved File")  # , icon='FILE_TICK')
+    elif context.blend_data.is_dirty and time_since_save > UNSAVED_WARNING_THRESHOLD:
+        row_alert = row.row(align=True)
+        row_alert.alert = True
+        row_alert.label(text="Save Pending")  # , icon='FILE_TICK')
+
+    # original_draw_right(self, context)
 
 
 class TIMETRACKER_OT_reset_data(bpy.types.Operator):
@@ -642,14 +644,18 @@ def register():
     # Set a timer to start the actual timer after Blender is initialized
     bpy.app.timers.register(delayed_start, first_interval=1.0)
 
-    global original_draw_right
-    original_draw_right = TOPBAR_HT_upper_bar.draw_right
-    TOPBAR_HT_upper_bar.draw_right = time_tracker_draw
+    # global original_draw_right
+    # original_draw_right = TOPBAR_HT_upper_bar.draw_right
+    # TOPBAR_HT_upper_bar.draw_right = time_tracker_draw
+    bpy.types.STATUSBAR_HT_header.prepend(time_tracker_draw)
 
 
 def unregister():
-    if original_draw_right:
-        TOPBAR_HT_upper_bar.draw_right = original_draw_right
+    # if original_draw_right:
+    #     TOPBAR_HT_upper_bar.draw_right = original_draw_right
+
+    # STATUSBAR_HT_header
+    bpy.types.STATUSBAR_HT_header.remove(time_tracker_draw)
 
     # End any active sessions before unregistering
     if time_data:
