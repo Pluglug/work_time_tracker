@@ -18,7 +18,6 @@ import os
 import atexit
 from bpy.app.handlers import persistent
 
-from bl_ui.space_topbar import TOPBAR_HT_upper_bar
 
 # Constants
 TEXT_NAME = ".work_time_tracker"
@@ -28,7 +27,7 @@ DATA_VERSION = 1  # データ形式のバージョン管理用
 # Global variables
 time_data = None
 timer = None
-original_draw_right = None  # TOPBAR_HT_upper_bar.draw_right
+
 
 def blend_time_data():
     """Get time tracking data for current blend file, create if doesn't exist"""
@@ -78,33 +77,21 @@ def blend_time_data():
 
 class TimeData:
     def __init__(self):
-        # Default values
-        self.total_time = 0  # Total tracked time in seconds
+        self.total_time = 0
         self.last_save_time = time.time()
-        self.sessions = []  # List of sessions with start/end times
-        self.file_creation_time = time.time()  # Track when the file was first created
-        self.file_id = None  # Store a unique ID for this blend file
+        self.sessions = []
+        self.file_creation_time = time.time()
+        self.file_id = None
         self.current_session_start = None
-        self.data_loaded = False
-        self.last_exit_clean = False
+        self.data_loaded = False  # このフラグは必要
 
     def reset(self):
-        """Reset all data to defaults but keep file_id"""
-        old_file_id = self.file_id  # 現在のファイルIDを保持
-
+        """Reset all data to defaults"""
         self.total_time = 0
         self.last_save_time = time.time()
         self.sessions = []
         self.file_creation_time = time.time()
         self.current_session_start = None
-        self.last_exit_clean = False
-
-        # ファイルIDは変更しない
-        if not old_file_id:
-            if bpy.data.filepath:
-                self.file_id = bpy.path.basename(bpy.data.filepath)
-            else:
-                self.file_id = "unsaved_file"
 
     def ensure_loaded(self):
         """Make sure data is loaded (safe to call after Blender is fully initialized)"""
@@ -136,6 +123,50 @@ class TimeData:
 
         print(f"Started session #{session_id} at {datetime.datetime.fromtimestamp(self.current_session_start)}")
         return session_id
+
+    def switch_session(self):
+        """現在のセッションを終了し、新しいセッションを開始"""
+        # アクティブなセッションを終了
+        ended_count = self.end_active_sessions()
+        if ended_count == 0:
+            print("No active sessions to end")
+        else:
+            print(f"Ended {ended_count} active sessions")
+
+        # 新しいセッションを開始
+        new_session_id = self.start_session()
+        print(f"Started new session #{new_session_id}")
+
+        # データを保存
+        self.save_data()
+        return True
+
+    def reset_current_session(self):
+        """現在のセッションをリセット"""
+        if not self.sessions:
+            return False
+            
+        # 最後のセッションを取得
+        current_session = next((s for s in reversed(self.sessions) if s.get('end') is None), None)
+        if not current_session:
+            return False
+            
+        # 古いセッション時間を計算
+        old_duration = time.time() - current_session['start']
+        
+        # 開始時間を現在時刻に更新
+        current_session['start'] = time.time()
+        current_session['duration'] = 0
+        
+        # トータル時間から古いセッション時間を引く
+        self.total_time -= old_duration
+        
+        # 現在のセッション開始時間も更新
+        self.current_session_start = current_session['start']
+        
+        # データを保存
+        self.save_data()
+        return True
 
     def end_active_sessions(self):
         """アクティブなセッションを終了"""
@@ -302,22 +333,6 @@ class TimeData:
         """Get formatted time since last save"""
         return self.format_time(self.get_time_since_last_save())
     
-    def _get_text_block(self, create=False):
-        """Get or create the text block for storing data"""
-        # Safely check if texts collection is available
-        if not hasattr(bpy.data, 'texts'):
-            return None
-            
-        if TEXT_NAME in bpy.data.texts:
-            return bpy.data.texts[TEXT_NAME]
-        elif create:
-            try:
-                return bpy.data.texts.new(TEXT_NAME)
-            except (AttributeError, RuntimeError) as e:
-                print(f"Error creating text block: {e}")
-                return None
-        return None
-    
     def format_time(self, seconds):
         """Format seconds into readable time string"""
         hours, remainder = divmod(int(seconds), 3600)
@@ -402,16 +417,8 @@ def delayed_start():
     """Start the timer after Blender is fully initialized"""
     if time_data:
         time_data.ensure_loaded()
-        # Debug - check if we have the correct file_id
-        if bpy.data.filepath:
-            current_file = bpy.path.basename(bpy.data.filepath)
-            if time_data.file_id != current_file:
-                print(f"Warning: file_id mismatch. Expected {current_file}, got {time_data.file_id}")
-                time_data.file_id = current_file
-                time_data.save_data()
-                print(f"Corrected file_id to {time_data.file_id}")
     start_timer()
-    return None  # Don't repeat
+    return None
 
 
 def start_timer():
@@ -490,12 +497,24 @@ class VIEW3D_PT_time_tracker(bpy.types.Panel):
                     row = layout.row()
                     row.label(text=f"Created: {creation_time.strftime('%Y-%m-%d %H:%M')}")
 
-            # Reset button
-            layout.separator()
-            layout.operator("timetracker.reset_data", text="Reset Time Data")
+            # layout.separator()
+            layout.operator("timetracker.switch_session", text="New Session", icon='FILE_REFRESH')
+            layout.operator("timetracker.export_data", text="Export Report", icon='TEXT')
 
-            # Export button
-            layout.operator("timetracker.export_data", text="Export Time Report")
+            # layout.separator()
+            header, sub_panel = layout.panel(idname="time_tracker_subpanel", default_closed=True)
+            header.label(text="Reset Data", icon='ERROR')
+            if sub_panel:
+                sub_panel.operator("timetracker.reset_session", text="Reset Current Session", icon='CANCEL')
+                sub_panel.alert = True
+                sub_panel.operator("timetracker.reset_data", text="Reset All Session", icon='ERROR')
+
+
+def format_hours_minutes(seconds):
+    """時間を HH:MM 形式でフォーマット"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    return f"{hours:02d}:{minutes:02d}"
 
 
 def time_tracker_draw(self, context):
@@ -504,13 +523,12 @@ def time_tracker_draw(self, context):
         return
 
     layout = self.layout
-
     row = layout.row(align=True)
 
-    total_time = time_data.total_time / 3600  # 時間単位に変換
-    session_time = time_data.get_current_session_time() / 60  # 分単位に変換
+    total_time_str = format_hours_minutes(time_data.total_time)
+    session_time_str = format_hours_minutes(time_data.get_current_session_time())
 
-    compact_text = f"{total_time:.1f}h ({session_time:.0f}m)"
+    compact_text = f"{total_time_str} | {session_time_str}"
 
     row.popover(
         panel="VIEW3D_PT_time_tracker",
@@ -524,13 +542,47 @@ def time_tracker_draw(self, context):
     if not context.blend_data.is_saved:
         row_alert = row.row(align=True)
         row_alert.alert = True
-        row_alert.label(text="Unsaved File")  # , icon='FILE_TICK')
+        row_alert.label(text="Unsaved File")
     elif context.blend_data.is_dirty and time_since_save > UNSAVED_WARNING_THRESHOLD:
         row_alert = row.row(align=True)
         row_alert.alert = True
-        row_alert.label(text="Save Pending")  # , icon='FILE_TICK')
+        row_alert.label(text="Save Pending")
 
-    # original_draw_right(self, context)
+
+class TIMETRACKER_OT_switch_session(bpy.types.Operator):
+    """現在のセッションを終了し、新しいセッションを開始"""
+    bl_idname = "timetracker.switch_session"
+    bl_label = "Switch Session"
+    bl_description = "End current session and start a new one"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        if time_data and time_data.switch_session():
+            self.report({'INFO'}, "Started new session")
+            return {'FINISHED'}
+        self.report({'WARNING'}, "Failed to switch session")
+        return {'CANCELLED'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+
+class TIMETRACKER_OT_reset_session(bpy.types.Operator):
+    """現在のセッションをリセット"""
+    bl_idname = "timetracker.reset_session"
+    bl_label = "Reset Current Session"
+    bl_description = "Reset the current session time to zero"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        if time_data and time_data.reset_current_session():
+            self.report({'INFO'}, "Current session has been reset")
+            return {'FINISHED'}
+        self.report({'WARNING'}, "No active session to reset")
+        return {'CANCELLED'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
 
 
 class TIMETRACKER_OT_reset_data(bpy.types.Operator):
@@ -621,6 +673,8 @@ def draw_time_graph(_self, _context):
 
 classes = (
     VIEW3D_PT_time_tracker,
+    TIMETRACKER_OT_switch_session,
+    TIMETRACKER_OT_reset_session,
     TIMETRACKER_OT_reset_data,
     TIMETRACKER_OT_export_data,
 )
@@ -644,17 +698,10 @@ def register():
     # Set a timer to start the actual timer after Blender is initialized
     bpy.app.timers.register(delayed_start, first_interval=1.0)
 
-    # global original_draw_right
-    # original_draw_right = TOPBAR_HT_upper_bar.draw_right
-    # TOPBAR_HT_upper_bar.draw_right = time_tracker_draw
     bpy.types.STATUSBAR_HT_header.prepend(time_tracker_draw)
 
 
 def unregister():
-    # if original_draw_right:
-    #     TOPBAR_HT_upper_bar.draw_right = original_draw_right
-
-    # STATUSBAR_HT_header
     bpy.types.STATUSBAR_HT_header.remove(time_tracker_draw)
 
     # End any active sessions before unregistering
