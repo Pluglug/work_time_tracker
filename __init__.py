@@ -118,7 +118,8 @@ class TimeData:
             'end': None,
             'duration': 0,
             'file_id': self.file_id,
-            'date': datetime.datetime.now().strftime('%Y-%m-%d')
+            'date': datetime.datetime.now().strftime('%Y-%m-%d'),
+            'comment': '',
         })
 
         print(f"Started session #{session_id} at {datetime.datetime.fromtimestamp(self.current_session_start)}")
@@ -186,6 +187,26 @@ class TimeData:
             print(f"Updated total time: {self.format_time(self.total_time)}")
 
         return ended_count
+
+    def get_current_session(self):
+        """現在のアクティブなセッションを取得"""
+        if not self.sessions:
+            return None
+        return next((s for s in reversed(self.sessions) if s.get('end') is None), None)
+
+    def set_session_comment(self, comment):
+        """現在のセッションにコメントを設定"""
+        current_session = self.get_current_session()
+        if current_session:
+            current_session['comment'] = comment
+            self.save_data()
+            return True
+        return False
+
+    def get_session_comment(self):
+        """現在のセッションのコメントを取得"""
+        current_session = self.get_current_session()
+        return current_session.get('comment', '') if current_session else ''
 
     def load_data(self):
         """テキストブロックからデータを読み込む"""
@@ -486,6 +507,18 @@ class VIEW3D_PT_time_tracker(bpy.types.Panel):
             else:
                 row.label(text=time_data.get_formatted_time_since_save())
 
+            box = layout.box()
+            row = box.row()
+            row.label(text="Session Info:", icon='TEXT')
+            
+            # コメント表示/編集
+            current_comment = time_data.get_session_comment()
+            if current_comment:
+                row = box.row()
+                row.label(text=current_comment, icon='SMALL_CAPS')
+            row = box.row()
+            row.operator("timetracker.edit_comment", text="Edit Comment", icon='GREASEPENCIL')
+
             # File info
             if time_data.file_id:
                 layout.separator()
@@ -542,11 +575,41 @@ def time_tracker_draw(self, context):
     if not context.blend_data.is_saved:
         row_alert = row.row(align=True)
         row_alert.alert = True
-        row_alert.label(text="Unsaved File")
+        row_alert.label(text="Unsaved File", icon='ERROR')
     elif context.blend_data.is_dirty and time_since_save > UNSAVED_WARNING_THRESHOLD:
         row_alert = row.row(align=True)
         row_alert.alert = True
-        row_alert.label(text="Save Pending")
+        row_alert.label(text="Save Pending", icon='ERROR')
+
+
+class TIMETRACKER_OT_edit_comment(bpy.types.Operator):
+    """セッションコメントを編集"""
+    bl_idname = "timetracker.edit_comment"
+    bl_label = "Edit Session Comment"
+    bl_description = "Edit comment for the current session"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    comment: bpy.props.StringProperty(
+        name="Comment",
+        description="Comment for the current session",
+        default=""
+    )
+
+    def invoke(self, context, event):
+        if time_data:
+            self.comment = time_data.get_session_comment()
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        if time_data and time_data.set_session_comment(self.comment):
+            self.report({'INFO'}, "Session comment updated")
+            return {'FINISHED'}
+        self.report({'WARNING'}, "No active session to comment on")
+        return {'CANCELLED'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "comment", text="")
 
 
 class TIMETRACKER_OT_switch_session(bpy.types.Operator):
@@ -658,8 +721,11 @@ class TIMETRACKER_OT_export_data(bpy.types.Operator):
                 report.write(f"### Session {i+1}\n")
                 report.write(f"- Start: {start_time}\n")
                 report.write(f"- End: {end_time}\n")
-                report.write(f"- Duration: {formatted_duration}\n\n")
-
+                report.write(f"- Duration: {formatted_duration}\n")
+                if session.get('comment'):
+                    report.write(f"- Comment: {session['comment']}\n")
+                
+                report.write("\n")
             self.report({'INFO'}, f"Report created: {report_name}")
             return {'FINISHED'}
         return {'CANCELLED'}
@@ -673,6 +739,7 @@ def draw_time_graph(_self, _context):
 
 classes = (
     VIEW3D_PT_time_tracker,
+    TIMETRACKER_OT_edit_comment,
     TIMETRACKER_OT_switch_session,
     TIMETRACKER_OT_reset_session,
     TIMETRACKER_OT_reset_data,
