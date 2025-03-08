@@ -10,14 +10,14 @@ bl_info = {
     "category": "Utility",
 }
 
-import bpy
-import time
+# import atexit
 import datetime
 import json
 import os
-import atexit
-from bpy.app.handlers import persistent
+import time
 
+import bpy
+from bpy.app.handlers import persistent
 
 # Constants
 TEXT_NAME = ".work_time_tracker"
@@ -60,12 +60,16 @@ def blend_time_data():
 
         # 初期データを設定
         initial_data = {
-            'version': DATA_VERSION,
-            'total_time': 0,
-            'last_save_time': time.time(),
-            'sessions': [],
-            'file_creation_time': time.time(),
-            'file_id': bpy.path.basename(bpy.data.filepath) if bpy.data.filepath else 'unsaved_file'
+            "version": DATA_VERSION,
+            "total_time": 0,
+            "last_save_time": time.time(),
+            "sessions": [],
+            "file_creation_time": time.time(),
+            "file_id": (
+                bpy.path.basename(bpy.data.filepath)
+                if bpy.data.filepath
+                else "unsaved_file"
+            ),
         }
         text_block.write(json.dumps(initial_data, indent=2))
 
@@ -102,27 +106,33 @@ class TimeData:
     def start_session(self):
         """セッションを開始 - ファイル読み込み時のみ呼び出す"""
         # アクティブなセッションがあるか確認
-        active_sessions = [s for s in self.sessions if s.get('end') is None]
+        active_sessions = [s for s in self.sessions if s.get("end") is None]
 
         if active_sessions:
-            print(f"Warning: {len(active_sessions)} active sessions found, ending them first")
+            print(
+                f"Warning: {len(active_sessions)} active sessions found, ending them first"
+            )
             self.end_active_sessions()
 
         # 新しいセッションを開始
         self.current_session_start = time.time()
         session_id = len(self.sessions) + 1
 
-        self.sessions.append({
-            'id': session_id,
-            'start': self.current_session_start,
-            'end': None,
-            'duration': 0,
-            'file_id': self.file_id,
-            'date': datetime.datetime.now().strftime('%Y-%m-%d'),
-            'comment': '',
-        })
+        self.sessions.append(
+            {
+                "id": session_id,
+                "start": self.current_session_start,
+                "end": None,
+                "duration": 0,
+                "file_id": self.file_id,
+                "date": datetime.datetime.now().strftime("%Y-%m-%d"),
+                "comment": "",
+            }
+        )
 
-        print(f"Started session #{session_id} at {datetime.datetime.fromtimestamp(self.current_session_start)}")
+        print(
+            f"Started session #{session_id} at {datetime.datetime.fromtimestamp(self.current_session_start)}"
+        )
         return session_id
 
     def switch_session(self):
@@ -146,25 +156,27 @@ class TimeData:
         """現在のセッションをリセット"""
         if not self.sessions:
             return False
-            
+
         # 最後のセッションを取得
-        current_session = next((s for s in reversed(self.sessions) if s.get('end') is None), None)
+        current_session = next(
+            (s for s in reversed(self.sessions) if s.get("end") is None), None
+        )
         if not current_session:
             return False
-            
+
         # 古いセッション時間を計算
-        old_duration = time.time() - current_session['start']
-        
+        old_duration = time.time() - current_session["start"]
+
         # 開始時間を現在時刻に更新
-        current_session['start'] = time.time()
-        current_session['duration'] = 0
-        
+        current_session["start"] = time.time()
+        current_session["duration"] = 0
+
         # トータル時間から古いセッション時間を引く
         self.total_time -= old_duration
-        
+
         # 現在のセッション開始時間も更新
-        self.current_session_start = current_session['start']
-        
+        self.current_session_start = current_session["start"]
+
         # データを保存
         self.save_data()
         return True
@@ -175,15 +187,19 @@ class TimeData:
         ended_count = 0
 
         for session in self.sessions:
-            if session.get('end') is None:
-                session['end'] = end_time
-                session['duration'] = session['end'] - session['start']
-                print(f"Ended session #{session.get('id', '?')}: {datetime.datetime.fromtimestamp(session['start'])} to {datetime.datetime.fromtimestamp(session['end'])}")
+            if session.get("end") is None:
+                session["end"] = end_time
+                session["duration"] = session["end"] - session["start"]
+                print(
+                    f"Ended session #{session.get('id', '?')}: {datetime.datetime.fromtimestamp(session['start'])} to {datetime.datetime.fromtimestamp(session['end'])}"
+                )
                 ended_count += 1
 
         if ended_count > 0:
             # トータル時間を更新
-            self.total_time = sum(session.get('duration', 0) for session in self.sessions)
+            self.total_time = sum(
+                session.get("duration", 0) for session in self.sessions
+            )
             print(f"Updated total time: {self.format_time(self.total_time)}")
 
         return ended_count
@@ -192,13 +208,13 @@ class TimeData:
         """現在のアクティブなセッションを取得"""
         if not self.sessions:
             return None
-        return next((s for s in reversed(self.sessions) if s.get('end') is None), None)
+        return next((s for s in reversed(self.sessions) if s.get("end") is None), None)
 
     def set_session_comment(self, comment):
         """現在のセッションにコメントを設定"""
         current_session = self.get_current_session()
         if current_session:
-            current_session['comment'] = comment
+            current_session["comment"] = comment
             self.save_data()
             return True
         return False
@@ -206,7 +222,7 @@ class TimeData:
     def get_session_comment(self):
         """現在のセッションのコメントを取得"""
         current_session = self.get_current_session()
-        return current_session.get('comment', '') if current_session else ''
+        return current_session.get("comment", "") if current_session else ""
 
     def load_data(self):
         """テキストブロックからデータを読み込む"""
@@ -246,35 +262,45 @@ class TimeData:
                 data = json.loads(text_block.as_string())
 
                 # データバージョンチェック (将来の互換性のため)
-                version = data.get('version', 1)
-                stored_file_id = data.get('file_id')
+                version = data.get("version", 1)
+                stored_file_id = data.get("file_id")
 
                 # ファイルIDが一致する場合のみデータを読み込む
                 if stored_file_id == self.file_id:
                     print(f"Found matching data for {self.file_id}")
 
                     # データの内容をすべて読み込む
-                    self.total_time = data.get('total_time', 0)
-                    self.last_save_time = data.get('last_save_time', time.time())
-                    self.sessions = data.get('sessions', [])
-                    self.file_creation_time = data.get('file_creation_time', time.time())
-                    self.last_exit_clean = data.get('last_exit_clean', False)
+                    self.total_time = data.get("total_time", 0)
+                    self.last_save_time = data.get("last_save_time", time.time())
+                    self.sessions = data.get("sessions", [])
+                    self.file_creation_time = data.get(
+                        "file_creation_time", time.time()
+                    )
+                    self.last_exit_clean = data.get("last_exit_clean", False)
 
                     # 未終了のセッションに対して、ファイルの最終更新時間を終了時間として設定
                     if file_exists and self.sessions:
                         for session in self.sessions:
-                            if session.get('end') is None:
+                            if session.get("end") is None:
                                 # 最終更新時間をセッション終了時間として使用
-                                session['end'] = last_modified
-                                session['duration'] = session['end'] - session['start']
-                                print(f"Updated session #{session.get('id', '?')} end time using file's last modified time")
+                                session["end"] = last_modified
+                                session["duration"] = session["end"] - session["start"]
+                                print(
+                                    f"Updated session #{session.get('id', '?')} end time using file's last modified time"
+                                )
 
                         # トータル時間を更新
-                        self.total_time = sum(session.get('duration', 0) for session in self.sessions)
+                        self.total_time = sum(
+                            session.get("duration", 0) for session in self.sessions
+                        )
 
-                    print(f"Loaded time data: {len(self.sessions)} sessions, {self.format_time(self.total_time)} total time")
+                    print(
+                        f"Loaded time data: {len(self.sessions)} sessions, {self.format_time(self.total_time)} total time"
+                    )
                 else:
-                    print(f"File ID mismatch: stored={stored_file_id}, current={self.file_id}")
+                    print(
+                        f"File ID mismatch: stored={stored_file_id}, current={self.file_id}"
+                    )
                     # ファイルが違う場合は既に実行したresetの値を使用
 
                 # 現在のセッション開始はリセット
@@ -293,12 +319,14 @@ class TimeData:
             current_time = time.time()
             # Find the active session
             for session in self.sessions:
-                if session['end'] is None:
-                    session['duration'] = current_time - session['start']
+                if session["end"] is None:
+                    session["duration"] = current_time - session["start"]
                     break
 
             # Update total_time in real-time based on all sessions
-            self.total_time = sum(session.get('duration', 0) for session in self.sessions)
+            self.total_time = sum(
+                session.get("duration", 0) for session in self.sessions
+            )
 
     def save_data(self):
         """Save time tracking data to text block"""
@@ -311,16 +339,16 @@ class TimeData:
         self.last_save_time = current_time
 
         # Update file_id if needed
-        filepath = getattr(bpy.data, 'filepath', '')
+        filepath = getattr(bpy.data, "filepath", "")
         if filepath and not self.file_id:
             self.file_id = bpy.path.basename(filepath)
 
         data = {
-            'total_time': self.total_time,
-            'last_save_time': self.last_save_time,
-            'sessions': self.sessions,
-            'file_creation_time': self.file_creation_time,
-            'file_id': self.file_id
+            "total_time": self.total_time,
+            "last_save_time": self.last_save_time,
+            "sessions": self.sessions,
+            "file_creation_time": self.file_creation_time,
+            "file_id": self.file_id,
         }
 
         # Use the safer text block getter
@@ -328,7 +356,9 @@ class TimeData:
         if text_block:
             text_block.clear()
             text_block.write(json.dumps(data, indent=2))
-            print(f"Saved time data: {len(self.sessions)} sessions, {self.format_time(self.total_time)} total time")
+            print(
+                f"Saved time data: {len(self.sessions)} sessions, {self.format_time(self.total_time)} total time"
+            )
         else:
             print("Failed to create or access text block for saving")
 
@@ -353,7 +383,7 @@ class TimeData:
     def get_formatted_time_since_save(self):
         """Get formatted time since last save"""
         return self.format_time(self.get_time_since_last_save())
-    
+
     def format_time(self, seconds):
         """Format seconds into readable time string"""
         hours, remainder = divmod(int(seconds), 3600)
@@ -365,9 +395,9 @@ class TimeData:
 def load_handler(_dummy):
     """Handler called when a blend file is loaded"""
     global time_data
-    
+
     # Blenderが完全に初期化されるまで待機
-    if not hasattr(bpy, 'data') or not hasattr(bpy.data, 'filepath'):
+    if not hasattr(bpy, "data") or not hasattr(bpy.data, "filepath"):
         print("load_handler called too early, bpy.data.filepath not available")
         return
 
@@ -416,9 +446,11 @@ def update_time_callback():
         time_data.update_session()
 
         # Check if filepath has changed, which might indicate new file via "Save As"
-        filepath = getattr(bpy.data, 'filepath', '')
+        filepath = getattr(bpy.data, "filepath", "")
         if filepath and time_data.file_id != bpy.path.basename(filepath):
-            print(f"Detected file path change during timer: {time_data.file_id} -> {bpy.path.basename(filepath)}")
+            print(
+                f"Detected file path change during timer: {time_data.file_id} -> {bpy.path.basename(filepath)}"
+            )
             # End current sessions (they belong to the old file)
             time_data.end_active_sessions()
             # Update file ID
@@ -429,7 +461,7 @@ def update_time_callback():
 
         # Force redraw of UI
         for area in bpy.context.screen.areas:
-            if area.type == 'VIEW_3D':
+            if area.type == "VIEW_3D":
                 area.tag_redraw()
     return 1.0  # Run again in 1 second
 
@@ -468,11 +500,12 @@ def get_file_modification_time():
 
 class VIEW3D_PT_time_tracker(bpy.types.Panel):
     """Time Tracker Panel"""
+
     bl_label = "Time Tracker"
     bl_idname = "VIEW3D_PT_time_tracker"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'Time'
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Time"
 
     def draw(self, context):
         layout = self.layout
@@ -497,7 +530,10 @@ class VIEW3D_PT_time_tracker(bpy.types.Panel):
             row.label(text="Time Since Save:")
 
             # Show warning if unsaved for too long
-            if context.blend_data.is_dirty and time_since_save > UNSAVED_WARNING_THRESHOLD:
+            if (
+                context.blend_data.is_dirty
+                and time_since_save > UNSAVED_WARNING_THRESHOLD
+            ):
                 # row_alert = layout.row()
                 row.alert = True
                 row.label(text=f"{time_data.get_formatted_time_since_save()}")
@@ -509,15 +545,17 @@ class VIEW3D_PT_time_tracker(bpy.types.Panel):
 
             box = layout.box()
             row = box.row()
-            row.label(text="Session Info:", icon='TEXT')
-            
+            row.label(text="Session Info:", icon="TEXT")
+
             # コメント表示/編集
             current_comment = time_data.get_session_comment()
             if current_comment:
                 row = box.row()
-                row.label(text=current_comment, icon='SMALL_CAPS')
+                row.label(text=current_comment, icon="SMALL_CAPS")
             row = box.row()
-            row.operator("timetracker.edit_comment", text="Edit Comment", icon='GREASEPENCIL')
+            row.operator(
+                "timetracker.edit_comment", text="Edit Comment", icon="GREASEPENCIL"
+            )
 
             # File info
             if time_data.file_id:
@@ -526,21 +564,37 @@ class VIEW3D_PT_time_tracker(bpy.types.Panel):
                 row.label(text=f"File ID: {time_data.file_id}")
 
                 if time_data.file_creation_time:
-                    creation_time = datetime.datetime.fromtimestamp(time_data.file_creation_time)
+                    creation_time = datetime.datetime.fromtimestamp(
+                        time_data.file_creation_time
+                    )
                     row = layout.row()
-                    row.label(text=f"Created: {creation_time.strftime('%Y-%m-%d %H:%M')}")
+                    row.label(
+                        text=f"Created: {creation_time.strftime('%Y-%m-%d %H:%M')}"
+                    )
 
             # layout.separator()
-            layout.operator("timetracker.switch_session", text="New Session", icon='FILE_REFRESH')
-            layout.operator("timetracker.export_data", text="Export Report", icon='TEXT')
+            layout.operator(
+                "timetracker.switch_session", text="New Session", icon="FILE_REFRESH"
+            )
+            layout.operator(
+                "timetracker.export_data", text="Export Report", icon="TEXT"
+            )
 
             # layout.separator()
-            header, sub_panel = layout.panel(idname="time_tracker_subpanel", default_closed=True)
-            header.label(text="Reset Data", icon='ERROR')
+            header, sub_panel = layout.panel(
+                idname="time_tracker_subpanel", default_closed=True
+            )
+            header.label(text="Reset Data", icon="ERROR")
             if sub_panel:
-                sub_panel.operator("timetracker.reset_session", text="Reset Current Session", icon='CANCEL')
+                sub_panel.operator(
+                    "timetracker.reset_session",
+                    text="Reset Current Session",
+                    icon="CANCEL",
+                )
                 sub_panel.alert = True
-                sub_panel.operator("timetracker.reset_data", text="Reset All Session", icon='ERROR')
+                sub_panel.operator(
+                    "timetracker.reset_data", text="Reset All Session", icon="ERROR"
+                )
 
 
 def format_hours_minutes(seconds):
@@ -563,11 +617,7 @@ def time_tracker_draw(self, context):
 
     compact_text = f"{total_time_str} | {session_time_str}"
 
-    row.popover(
-        panel="VIEW3D_PT_time_tracker",
-        text=compact_text,
-        icon='TIME'
-    )
+    row.popover(panel="VIEW3D_PT_time_tracker", text=compact_text, icon="TIME")
 
     row.separator()
 
@@ -575,24 +625,23 @@ def time_tracker_draw(self, context):
     if not context.blend_data.is_saved:
         row_alert = row.row(align=True)
         row_alert.alert = True
-        row_alert.label(text="Unsaved File", icon='ERROR')
+        row_alert.label(text="Unsaved File", icon="ERROR")
     elif context.blend_data.is_dirty and time_since_save > UNSAVED_WARNING_THRESHOLD:
         row_alert = row.row(align=True)
         row_alert.alert = True
-        row_alert.label(text="Save Pending", icon='ERROR')
+        row_alert.label(text="Save Pending", icon="ERROR")
 
 
 class TIMETRACKER_OT_edit_comment(bpy.types.Operator):
     """セッションコメントを編集"""
+
     bl_idname = "timetracker.edit_comment"
     bl_label = "Edit Session Comment"
     bl_description = "Edit comment for the current session"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     comment: bpy.props.StringProperty(
-        name="Comment",
-        description="Comment for the current session",
-        default=""
+        name="Comment", description="Comment for the current session", default=""
     )
 
     def invoke(self, context, event):
@@ -602,10 +651,10 @@ class TIMETRACKER_OT_edit_comment(bpy.types.Operator):
 
     def execute(self, context):
         if time_data and time_data.set_session_comment(self.comment):
-            self.report({'INFO'}, "Session comment updated")
-            return {'FINISHED'}
-        self.report({'WARNING'}, "No active session to comment on")
-        return {'CANCELLED'}
+            self.report({"INFO"}, "Session comment updated")
+            return {"FINISHED"}
+        self.report({"WARNING"}, "No active session to comment on")
+        return {"CANCELLED"}
 
     def draw(self, context):
         layout = self.layout
@@ -614,17 +663,18 @@ class TIMETRACKER_OT_edit_comment(bpy.types.Operator):
 
 class TIMETRACKER_OT_switch_session(bpy.types.Operator):
     """現在のセッションを終了し、新しいセッションを開始"""
+
     bl_idname = "timetracker.switch_session"
     bl_label = "Switch Session"
     bl_description = "End current session and start a new one"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         if time_data and time_data.switch_session():
-            self.report({'INFO'}, "Started new session")
-            return {'FINISHED'}
-        self.report({'WARNING'}, "Failed to switch session")
-        return {'CANCELLED'}
+            self.report({"INFO"}, "Started new session")
+            return {"FINISHED"}
+        self.report({"WARNING"}, "Failed to switch session")
+        return {"CANCELLED"}
 
     def invoke(self, context, event):
         return context.window_manager.invoke_confirm(self, event)
@@ -632,17 +682,18 @@ class TIMETRACKER_OT_switch_session(bpy.types.Operator):
 
 class TIMETRACKER_OT_reset_session(bpy.types.Operator):
     """現在のセッションをリセット"""
+
     bl_idname = "timetracker.reset_session"
     bl_label = "Reset Current Session"
     bl_description = "Reset the current session time to zero"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         if time_data and time_data.reset_current_session():
-            self.report({'INFO'}, "Current session has been reset")
-            return {'FINISHED'}
-        self.report({'WARNING'}, "No active session to reset")
-        return {'CANCELLED'}
+            self.report({"INFO"}, "Current session has been reset")
+            return {"FINISHED"}
+        self.report({"WARNING"}, "No active session to reset")
+        return {"CANCELLED"}
 
     def invoke(self, context, event):
         return context.window_manager.invoke_confirm(self, event)
@@ -650,10 +701,11 @@ class TIMETRACKER_OT_reset_session(bpy.types.Operator):
 
 class TIMETRACKER_OT_reset_data(bpy.types.Operator):
     """Reset time tracking data"""
+
     bl_idname = "timetracker.reset_data"
     bl_label = "Reset Time Data"
     bl_description = "Reset all time tracking data"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         global time_data
@@ -662,7 +714,7 @@ class TIMETRACKER_OT_reset_data(bpy.types.Operator):
         time_data = TimeData()
         time_data.start_session()
         time_data.save_data()
-        return {'FINISHED'}
+        return {"FINISHED"}
 
     def invoke(self, context, event):
         return context.window_manager.invoke_confirm(self, event)
@@ -670,6 +722,7 @@ class TIMETRACKER_OT_reset_data(bpy.types.Operator):
 
 class TIMETRACKER_OT_export_data(bpy.types.Operator):
     """Export time tracking data"""
+
     bl_idname = "timetracker.export_data"
     bl_label = "Export Time Report"
     bl_description = "Export time tracking data to a text file"
@@ -691,44 +744,56 @@ class TIMETRACKER_OT_export_data(bpy.types.Operator):
             filename = bpy.path.basename(bpy.data.filepath) or "Unsaved File"
 
             # Get file creation time
-            creation_date = datetime.datetime.fromtimestamp(time_data.file_creation_time)
+            creation_date = datetime.datetime.fromtimestamp(
+                time_data.file_creation_time
+            )
 
             # Write report header
             report.write(f"# Work Time Report for {filename}\n")
             report.write(f"Generated: {current_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            report.write(f"File created: {creation_date.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            report.write(
+                f"File created: {creation_date.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            )
             report.write(f"File ID: {time_data.file_id}\n\n")
 
             # Write summary
             report.write("## Summary\n")
             report.write(f"- Total work time: {time_data.get_formatted_total_time()}\n")
-            report.write(f"- Current session: {time_data.get_formatted_session_time()}\n")
-            report.write(f"- Time since last save: {time_data.get_formatted_time_since_save()}\n\n")
+            report.write(
+                f"- Current session: {time_data.get_formatted_session_time()}\n"
+            )
+            report.write(
+                f"- Time since last save: {time_data.get_formatted_time_since_save()}\n\n"
+            )
 
             # Write detailed session info
             report.write("## Session History\n")
             for i, session in enumerate(time_data.sessions):
-                start_time = datetime.datetime.fromtimestamp(session['start']).strftime('%Y-%m-%d %H:%M:%S')
+                start_time = datetime.datetime.fromtimestamp(session["start"]).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
 
-                if session['end'] is None:
+                if session["end"] is None:
                     end_time = "Current"
-                    duration = time.time() - session['start']
+                    duration = time.time() - session["start"]
                 else:
-                    end_time = datetime.datetime.fromtimestamp(session['end']).strftime('%Y-%m-%d %H:%M:%S')
-                    duration = session['duration']
+                    end_time = datetime.datetime.fromtimestamp(session["end"]).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                    duration = session["duration"]
 
                 formatted_duration = time_data.format_time(duration)
                 report.write(f"### Session {i+1}\n")
                 report.write(f"- Start: {start_time}\n")
                 report.write(f"- End: {end_time}\n")
                 report.write(f"- Duration: {formatted_duration}\n")
-                if session.get('comment'):
+                if session.get("comment"):
                     report.write(f"- Comment: {session['comment']}\n")
-                
+
                 report.write("\n")
-            self.report({'INFO'}, f"Report created: {report_name}")
-            return {'FINISHED'}
-        return {'CANCELLED'}
+            self.report({"INFO"}, f"Report created: {report_name}")
+            return {"FINISHED"}
+        return {"CANCELLED"}
 
 
 # Visual Time Graph class (to be implemented in view_3d_draw_handler)
