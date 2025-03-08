@@ -1,0 +1,16 @@
+---
+config:
+  theme: default
+  flowchart:
+    curve: basis
+---
+flowchart TD
+    core_time_data(core.time_data)
+    operators_time_ops(operators.time_ops)
+    ui_panels(ui.panels)
+    utils_formatting(utils.formatting)
+    core_time_data --> utils_formatting
+    operators_time_ops --> utils_formatting
+    operators_time_ops --> core_time_data
+    ui_panels --> utils_formatting
+    ui_panels --> core_time_data
