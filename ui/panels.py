@@ -36,51 +36,59 @@ class VIEW3D_PT_time_tracker(bpy.types.Panel):
             layout.label(text="Time tracker not initialized")
             return
 
-        # 現在のセッション情報
-        current_session = time_data.get_current_session()
-        if current_session:
+        if time_data:
+            # Ensure data is loaded
+            time_data.ensure_loaded()
+
+            # Display total time
+            row = layout.row()
+            row.label(text="Total Work Time:")
+            row.label(text=time_data.get_formatted_total_time())
+
+            # Display current session time
+            row = layout.row()
+            row.label(text="Current Session:")
+            row.label(text=time_data.get_formatted_session_time())
+
+            # Display time since last save
+            time_since_save = time_data.get_time_since_last_save()
+            row = layout.row()
+            row.label(text="Time Since Save:")
+
+            # Show warning if unsaved for too long
+            if (
+                context.blend_data.is_dirty
+                and time_since_save > UNSAVED_WARNING_THRESHOLD
+            ):
+                # row_alert = layout.row()
+                row.alert = True
+                row.label(text=f"{time_data.get_formatted_time_since_save()}")
+                row_alert = layout.row()
+                row_alert.alert = True
+                row_alert.label(text="Consider saving your work!")
+            else:
+                row.label(text=time_data.get_formatted_time_since_save())
+
             box = layout.box()
             row = box.row()
-            row.label(text="Current Session", icon="TIME")
+            row.label(text="Session Info:", icon="TEXT")
 
-            # セッション時間
-            session_time = time_data.get_current_session_time()
-            row = box.row()
-            row.label(text=f"Time: {time_data.format_time(session_time)}")
-
-            # セッション開始時間
-            if current_session.get("start"):
-                start_time = datetime.datetime.fromtimestamp(
-                    current_session["start"]
-                )
+            # コメント表示/編集
+            current_comment = time_data.get_session_comment()
+            if current_comment:
                 row = box.row()
-                row.label(text=f"Started: {start_time.strftime('%H:%M:%S')}")
-
-            # セッションコメント
-            comment = current_session.get("comment", "")
-            if comment:
-                row = box.row()
-                row.label(text=f"Comment: {comment}")
-            
+                row.label(text=current_comment, icon="SMALL_CAPS")
             row = box.row()
             row.operator(
-                "timetracker.edit_comment", 
-                text="Edit Comment", 
-                icon="GREASEPENCIL"
+                "timetracker.edit_comment", text="Edit Comment", icon="GREASEPENCIL"
             )
 
             # File info
-            box = layout.box()
-            row = box.row()
-            row.label(text="File Info", icon="FILE_BLEND")
+            if time_data.file_id:
+                layout.separator()
+                row = layout.row()
+                row.label(text=f"File ID: {time_data.file_id}")
 
-            # ファイル名
-            if bpy.data.filepath:
-                filename = bpy.path.basename(bpy.data.filepath)
-                row = box.row()
-                row.label(text=f"File: {filename}")
-
-                # ファイル作成日時
                 if time_data.file_creation_time:
                     creation_time = datetime.datetime.fromtimestamp(
                         time_data.file_creation_time
@@ -92,41 +100,27 @@ class VIEW3D_PT_time_tracker(bpy.types.Panel):
 
             # layout.separator()
             layout.operator(
-                "timetracker.switch_session", 
-                text="New Session", 
-                icon="FILE_REFRESH"
+                "timetracker.switch_session", text="New Session", icon="FILE_REFRESH"
             )
             layout.operator(
-                "timetracker.export_data", 
-                text="Export Report", 
-                icon="TEXT"
+                "timetracker.export_data", text="Export Report", icon="TEXT"
             )
 
-            # 合計時間
-            box = layout.box()
-            row = box.row()
-            row.label(text="Total Time", icon="SORTTIME")
-            row = box.row()
-            row.label(text=time_data.get_formatted_total_time())
-
-            # リセットボタン
-            layout.operator(
-                "timetracker.reset_session", 
-                text="Reset Session", 
-                icon="X"
+            # layout.separator()
+            header, sub_panel = layout.panel(
+                idname="time_tracker_subpanel", default_closed=True
             )
-
-            # 危険な操作は別のパネルに
-            layout.separator()
-            box = layout.box()
-            sub_panel = box.column()
-            sub_panel.label(text="Danger Zone", icon="ERROR")
-            sub_panel.alert = True
-            sub_panel.operator(
-                "timetracker.reset_data", 
-                text="Reset All Session", 
-                icon="ERROR"
-            )
+            header.label(text="Reset Data", icon="ERROR")
+            if sub_panel:
+                sub_panel.operator(
+                    "timetracker.reset_session",
+                    text="Reset Current Session",
+                    icon="CANCEL",
+                )
+                sub_panel.alert = True
+                sub_panel.operator(
+                    "timetracker.reset_data", text="Reset All Session", icon="ERROR"
+                )
 
 
 def time_tracker_draw(self, context):
@@ -137,27 +131,24 @@ def time_tracker_draw(self, context):
         print("Time tracker not initialized")
         return
 
-    # 時間データを取得
+    layout = self.layout
+    row = layout.row(align=True)
+
     total_time_str = format_hours_minutes(time_data.total_time)
-    session_time_str = format_hours_minutes(
-        time_data.get_current_session_time()
-    )
+    session_time_str = format_hours_minutes(time_data.get_current_session_time())
 
     compact_text = f"{total_time_str} | {session_time_str}"
 
-    # ステータスバーに表示
-    layout = self.layout
-    row = layout.row(align=True)
-    row.label(text=f"Work Time: {compact_text}")
+    row.popover(panel="VIEW3D_PT_time_tracker", text=compact_text, icon="TIME")
 
-    # 未保存警告
+    row.separator()
+
     time_since_save = time_data.get_time_since_last_save()
-    if not bpy.data.filepath:
+    if not context.blend_data.is_saved:
         row_alert = row.row(align=True)
         row_alert.alert = True
         row_alert.label(text="Unsaved File", icon="ERROR")
-    elif (context.blend_data.is_dirty and 
-          time_since_save > UNSAVED_WARNING_THRESHOLD):
+    elif context.blend_data.is_dirty and time_since_save > UNSAVED_WARNING_THRESHOLD:
         row_alert = row.row(align=True)
         row_alert.alert = True
         row_alert.label(text="Save Pending", icon="ERROR")
