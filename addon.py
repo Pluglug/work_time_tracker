@@ -1,73 +1,12 @@
 """
-# Blender Addon Module Manager 1.0
-# ================================
-#
-# 概要:
-# -----
-# Blenderアドオン用の汎用モジュール管理システム。
-# モジュールの依存関係解決、クラス登録の自動化、トラブルシューティングツールを提供。
-#
-# 主な機能:
-# ---------
-# - パターンベースのモジュール自動検出
-# - 依存関係の解析と自動解決（トポロジカルソート）
-# - 循環依存の検出と代替解決
-# - クラスの自動登録とエラーハンドリング
-# - デバッグツールと依存関係の視覚化
-#
-# 主要関数:
-# ---------
-# init_addon(module_patterns, use_reload=False, background=False, prefix=None, prefix_py=None, force_order=None)
-#   - module_patterns: ロードするモジュールのパターンリスト
-#   - use_reload: 開発時のモジュールリロード
-#   - background: バックグラウンドモード設定
-#   - prefix: オペレータ接頭辞
-#   - prefix_py: Python用接頭辞
-#   - force_order: 強制モジュール順序（トラブルシューティング用）
-#
-# register_modules()
-#   - 全モジュールとクラスの登録を実行
-#
-# unregister_modules()
-#   - 全モジュールとクラスの登録を解除
-#
-# ユーティリティ:
-# -------------
-# uprefs(context=bpy.context) -> bpy.types.Preferences
-#   - ユーザー設定を取得
-#
-# prefs(context=bpy.context) -> bpy.types.AddonPreferences
-#   - アドオン設定を取得
-#
-# timeout(func, *args)
-#   - 関数を非同期で実行
-#
-# 使用例:
-# -------
-# from . import addon
-#
-# addon.init_addon(
-#     module_patterns=[
-#         "core.*",
-#         "utils.*",
-#         "ui.*",
-#         "operators.*",
-#     ],
-#     use_reload=True
-# )
-#
-# def register():
-#     addon.register_modules()
-#
-# def unregister():
-#     addon.unregister_modules()
-#
-# モジュール依存指定:
-# -----------------
-# モジュール内で DEPENDS_ON = ["core.data", "utils.helpers"] のように指定すると
-# 明示的な依存関係として解釈されます。自動検知ができない場合はこちらを指定してください。
-#
+Framework for Blender addon development
+
+- Automatic module loading and dependency management
+- Detection and resolution of circular dependencies
+- Automatic class registration
 """
+
+from __future__ import annotations
 
 import importlib
 import inspect
@@ -75,38 +14,36 @@ import os
 import pkgutil
 import re
 import sys
+import traceback
 from collections import defaultdict
-from typing import Dict, List, Pattern, Set
+from typing import TYPE_CHECKING, Dict, List, Pattern, Set
 
 import bpy
+from bpy.utils import user_resource
 
-# from .utils.logging import get_logger
+# from .utils.logging import get_logger  # TODO: Printをログに変更
 # log = get_logger(__name__)
 
 # ======================================================
 # グローバル設定
 # ======================================================
 
-DBG_INIT = True  # 初期化時のデバッグ出力
-BACKGROUND = False  # バックグラウンドモードの有効化
-VERSION = (0, 0, 0)  # アドオンバージョン
-BL_VERSION = (0, 0, 0)  # 対応Blenderバージョン
+DBG_INIT = False
+CREATE_DEPENDENCY_GRAPH = False  # Create dependency graph
+BACKGROUND = False
+VERSION = (0, 0, 0)  # Addon version
+BL_VERSION = (0, 0, 0)  # Supported Blender version
 
-# アドオン基本情報
 ADDON_PATH = os.path.dirname(os.path.abspath(__file__))
 ADDON_ID = os.path.basename(ADDON_PATH)
-TEMP_PREFS_ID = f"addon_{ADDON_ID}"
 ADDON_PREFIX = "".join([s[0] for s in re.split(r"[_-]", ADDON_ID)]).upper()
 ADDON_PREFIX_PY = ADDON_PREFIX.lower()
 
 # モジュール管理用
 MODULE_NAMES: List[str] = []  # ロード順序が解決されたモジュールリスト
 MODULE_PATTERNS: List[Pattern] = []  # 読み込み対象のモジュールパターン
-ICON_ENUM_ITEMS = (
-    bpy.types.UILayout.bl_rna.functions["prop"].parameters["icon"].enum_items
-)
 
-# キャッシュ
+
 _class_cache: List[bpy.types.bpy_struct] = None
 
 # ======================================================
@@ -114,53 +51,63 @@ _class_cache: List[bpy.types.bpy_struct] = None
 # ======================================================
 
 
-def uprefs(context: bpy.types.Context = bpy.context) -> bpy.types.Preferences:
+def get_uprefs(context: bpy.types.Context = bpy.context) -> bpy.types.Preferences:
     """
-    ユーザープリファレンスを取得
+    Get user preferences
 
     Args:
-        context: Blenderコンテキスト（デフォルトはbpy.context）
+        context: Blender context (defaults to bpy.context)
 
     Returns:
-        bpy.types.Preferences: ユーザー設定
+        bpy.types.Preferences: User preferences
 
     Raises:
-        AttributeError: プリファレンスにアクセスできない場合
+        AttributeError: If preferences cannot be accessed
     """
     preferences = getattr(context, "preferences", None)
     if preferences is not None:
         return preferences
-    raise AttributeError("プリファレンスにアクセスできません")
+    raise AttributeError("Could not access preferences")
 
 
-def prefs(context: bpy.types.Context = bpy.context) -> bpy.types.AddonPreferences:
+def get_prefs(context: bpy.types.Context = bpy.context) -> bpy.types.AddonPreferences:
     """
-    アドオン設定を取得
+    Get addon preferences
 
     Args:
-        context: Blenderコンテキスト（デフォルトはbpy.context）
+        context: Blender context (defaults to bpy.context)
 
     Returns:
-        bpy.types.AddonPreferences: アドオン設定
+        bpy.types.AddonPreferences: Addon preferences
 
     Raises:
-        KeyError: アドオンが見つからない場合
+        KeyError: If addon is not found
     """
-    user_prefs = uprefs(context)
+    user_prefs = get_uprefs(context)
     addon_prefs = user_prefs.addons.get(ADDON_ID)
     if addon_prefs is not None:
         return addon_prefs.preferences
-    raise KeyError(f"アドオン'{ADDON_ID}'が見つかりません")
+    raise KeyError(f"Addon '{ADDON_ID}' not found")
 
 
-def temp_prefs() -> bpy.types.PropertyGroup:
-    """
-    一時設定を取得
+def get_config_dir() -> str:
+    """Gets the addon's configuration directory path."""
+    config_path = user_resource("CONFIG", path="addons", create=True)
+    return os.path.join(config_path, ADDON_ID)
 
-    Returns:
-        bpy.types.PropertyGroup: 一時的な設定オブジェクト
-    """
-    return getattr(bpy.context.window_manager, TEMP_PREFS_ID, None)
+
+def get_presets_dir() -> str:
+    """Gets the pattern presets directory path. Creates the directory if it doesn't exist."""
+    presets_dir = os.path.join(ADDON_PATH, "resources", "presets")
+    os.makedirs(presets_dir, exist_ok=True)
+    return presets_dir
+
+
+def get_user_presets_dir() -> str:
+    """Gets the user's pattern presets directory path. Creates the directory if it doesn't exist."""
+    presets_dir = os.path.join(get_config_dir(), "presets")
+    os.makedirs(presets_dir, exist_ok=True)
+    return presets_dir
 
 
 # ======================================================
@@ -237,14 +184,16 @@ def init_addon(
             else:
                 importlib.import_module(module_name)
         except Exception as e:
-            print(f"モジュール {module_name} のロードに失敗: {str(e)}")
+            print(f">>> Failed to load module {module_name}: {str(e)}")
+            traceback.print_exception(type(e), e, e.__traceback__, limit=2)
 
     # 依存関係解決
     if force_order:
         # ------------------------------------------------------
         # トラブルシューティング用: 強制的なモジュールロード順序
         # ------------------------------------------------------
-        print("\n=== 強制指定されたモジュールロード順序を使用 ===")
+        if DBG_INIT:
+            print("\n=== 強制指定されたモジュールロード順序を使用 ===")
         sorted_modules = _resolve_forced_order(force_order, module_names)
     else:
         # ------------------------------------------------------
@@ -283,7 +232,7 @@ def _resolve_forced_order(force_order: List[str], module_names: List[str]) -> Li
         if full_name in module_names:
             processed_order.append(full_name)
         else:
-            print(f"警告: 指定されたモジュール {full_name} は見つかりません")
+            print(f"Warning: Specified module {full_name} not found")
 
     # 指定されていないモジュールを末尾に追加
     remaining = [m for m in module_names if m not in processed_order]
@@ -319,8 +268,16 @@ def _analyze_dependencies(module_names: List[str]) -> Dict[str, Set[str]]:
     pdtype = bpy.props._PropertyDeferred
 
     # インポート依存関係をマージ
-    for mod_name, deps in import_graph.items():
-        graph[mod_name].update(deps)
+    # NOTE: _analyze_imports は {依存元: {依存先}} の辞書を返す。
+    #       一方、トポロジカルソートで使う graph は {依存先: {依存元}} の形式にする必要がある。
+    #       そのため、import_graph をイテレートし、依存関係を逆転させて graph に追加する。
+    #       以前の実装 (graph[mod_name].update(deps)) では方向が逆だったため、循環依存が誤検出されていた。
+    for (
+        mod_name,
+        deps,
+    ) in import_graph.items():  # mod_name = 依存元, deps = 依存先のセット
+        for dep in deps:  # dep = 依存先
+            graph[dep].add(mod_name)  # graph[依存先].add(依存元)
 
     for mod_name in module_names:
         mod = sys.modules.get(mod_name)
@@ -351,18 +308,24 @@ def _analyze_dependencies(module_names: List[str]) -> Dict[str, Set[str]]:
         # 明示的依存関係
         if hasattr(mod, "DEPENDS_ON"):
             for dep in mod.DEPENDS_ON:
-                dep_full = f"{ADDON_ID}.{dep}"
+                # プレフィックスが付いていない場合は付与
+                dep_full = f"{ADDON_ID}.{dep}" if not dep.startswith(ADDON_ID) else dep
                 if dep_full in module_names:
                     # 注: 方向は「依存先 → 依存元」
                     graph[dep_full].add(mod_name)
+                else:
+                    if DBG_INIT:
+                        print(
+                            f"  警告: {mod_name} の依存先 {dep_full} が見つかりません"
+                        )
 
     if DBG_INIT:
         print("\n=== 依存関係詳細 ===")
         for mod, deps in sorted(graph.items()):
             if deps:
-                print(f"{mod} は以下に依存:")
+                print(f"{short_name(mod)} は以下から依存されています:")
                 for d in sorted(deps):
-                    print(f"  → {d}")
+                    print(f"  → {short_name(d)}")
 
     return graph
 
@@ -376,6 +339,7 @@ def _analyze_imports(module_names: List[str]) -> Dict[str, Set[str]]:
     - 直接インポート: import x.y.z
     - 相対インポート: from .x import y
     - サブモジュールインポート: from x.y import z
+    `if TYPE_CHECKING:` ブロック内のインポートは無視されます。
 
     Args:
         module_names: 解析対象のモジュール名リスト
@@ -388,73 +352,124 @@ def _analyze_imports(module_names: List[str]) -> Dict[str, Set[str]]:
 
     graph = defaultdict(set)
 
+    class ImportVisitor(ast.NodeVisitor):
+        def __init__(self, mod_name, graph):
+            self.mod_name = mod_name
+            self.graph = graph
+            self.in_type_checking_block = False
+
+        def visit_If(self, node: ast.If):
+            # if TYPE_CHECKING: ブロックか判定
+            is_type_checking = (
+                isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING"
+            )
+            original_state = self.in_type_checking_block
+            if is_type_checking:
+                self.in_type_checking_block = True
+
+            # 子ノードを訪問 (If文のbody, orelse)
+            self.generic_visit(node)
+
+            # フラグを元に戻す
+            self.in_type_checking_block = original_state
+
+        def _add_dependency(self, imported_name):
+            """依存関係をグラフに追加するヘルパー"""
+            # アドオン内のモジュールのみ対象
+            if imported_name.startswith(ADDON_ID):
+                self.graph[self.mod_name].add(imported_name)
+            # サブモジュールのインポートも解析（例: import x.y）
+            # ただし、トップレベルのインポートのみ対象とする
+            elif "." not in self.mod_name:  # トップレベルからのインポートの場合のみ考慮
+                parts = imported_name.split(".")
+                current_prefix = ""
+                for part in parts:
+                    current_prefix = (
+                        f"{current_prefix}.{part}" if current_prefix else part
+                    )
+                    full_name = f"{ADDON_ID}.{current_prefix}"
+                    if full_name in module_names:
+                        self.graph[self.mod_name].add(full_name)
+
+        def visit_Import(self, node: ast.Import):
+            # TYPE_CHECKING ブロック内なら無視
+            if self.in_type_checking_block:
+                return
+
+            for alias in node.names:
+                self._add_dependency(alias.name)
+
+        def visit_ImportFrom(self, node: ast.ImportFrom):
+            # TYPE_CHECKING ブロック内なら無視
+            if self.in_type_checking_block:
+                return
+
+            base_path = ""  # linter エラー回避のため初期化
+            if node.module:
+                module_path = node.module
+                # 相対インポートの処理
+                if node.level > 0:
+                    parent_parts = self.mod_name.split(".")
+                    if node.level > len(parent_parts) - 1:
+                        return  # 範囲外の相対インポート
+                    base_path = ".".join(parent_parts[: -node.level])
+                    module_path = (
+                        f"{base_path}.{module_path}" if module_path else base_path
+                    )
+                else:
+                    # アドオン外からの絶対インポートの場合、プレフィックスをつける試み
+                    if not module_path.startswith(ADDON_ID + "."):
+                        potential_full_path = f"{ADDON_ID}.{module_path}"
+                        if any(m.startswith(potential_full_path) for m in module_names):
+                            module_path = potential_full_path
+
+                # アドオン内のインポートか確認
+                if module_path.startswith(ADDON_ID):
+                    if module_path in module_names:
+                        self.graph[self.mod_name].add(module_path)
+
+                    # from A.B import C のようなケースで A.B.C がモジュールの場合
+                    for alias in node.names:
+                        if alias.name != "*":
+                            full_submodule = f"{module_path}.{alias.name}"
+                            if full_submodule in module_names:
+                                self.graph[self.mod_name].add(full_submodule)
+                # `from . import foo` のような場合 (module_pathが空) で、base_path がモジュールの場合
+                elif node.level > 0 and not node.module and base_path in module_names:
+                    self.graph[self.mod_name].add(base_path)
+
     for mod_name in module_names:
         mod = sys.modules.get(mod_name)
         if not mod:
             continue
 
-        # モジュールのファイルパスを取得
         if not hasattr(mod, "__file__") or not mod.__file__:
             continue
 
         try:
-            # ファイルの内容を読み込み
             with open(mod.__file__, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            # ASTを解析
-            tree = ast.parse(content)
+            tree = ast.parse(content, filename=mod.__file__)
+            visitor = ImportVisitor(mod_name, graph)
+            visitor.visit(tree)
 
-            # インポート文を検索
-            for node in ast.walk(tree):
-                # 'import x.y.z' 形式
-                if isinstance(node, ast.Import):
-                    for name in node.names:
-                        imported_name = name.name
-                        # アドオン内のモジュールのみ対象
-                        if imported_name.startswith(ADDON_ID):
-                            graph[mod_name].add(imported_name)
-                        # サブモジュールのインポートも解析（例: import x.y）
-                        else:
-                            parts = imported_name.split(".")
-                            for i in range(1, len(parts)):
-                                prefix = ".".join(parts[: i + 1])
-                                full_name = f"{ADDON_ID}.{prefix}"
-                                if full_name in module_names:
-                                    graph[mod_name].add(full_name)
-
-                # 'from x.y import z' 形式
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        module_path = node.module
-                        # 相対インポートの処理
-                        if node.level > 0:
-                            parent_parts = mod_name.split(".")
-                            if node.level > len(parent_parts) - 1:
-                                continue  # 範囲外の相対インポート
-                            base_path = ".".join(parent_parts[: -node.level])
-                            if module_path:
-                                module_path = f"{base_path}.{module_path}"
-                            else:
-                                module_path = base_path
-
-                        # アドオン内のインポートのみ追加
-                        full_import = f"{module_path}"
-                        if not full_import.startswith(ADDON_ID) and module_path:
-                            full_import = f"{ADDON_ID}.{module_path}"
-
-                        if full_import in module_names:
-                            graph[mod_name].add(full_import)
-
-                        # サブモジュールも対象にする
-                        for name in node.names:
-                            if name.name != "*":  # ワイルドカードインポートはスキップ
-                                full_submodule = f"{full_import}.{name.name}"
-                                if full_submodule in module_names:
-                                    graph[mod_name].add(full_submodule)
-
+        except FileNotFoundError:
+            print(f"File not found ({mod_name}): {mod.__file__}")
+        except SyntaxError as e:
+            print(f"Syntax error ({mod_name}): {str(e)}")
         except Exception as e:
-            print(f"インポート解析エラー ({mod_name}): {str(e)}")
+            print(f"Unexpected error during import analysis ({mod_name}): {str(e)}")
+            traceback.print_exc()
+
+    if DBG_INIT:
+        print("\n--- Import dependencies ---")
+        for mod, deps in sorted(graph.items()):
+            if deps:
+                print(f"{short_name(mod)} depends on:")
+                for d in sorted(deps):
+                    print(f"  -> {short_name(d)}")
+        print("-------------------------------------------------")
 
     return graph
 
@@ -502,31 +517,32 @@ def _sort_modules(module_names: List[str]) -> List[str]:
                 dep_str = ", ".join(short_name(d) for d in deps) if deps else "-"
                 print(f"{idx+1:2d}. {short_name(mod)} (依存: {dep_str})")
 
-            # Mermaid形式で図を生成 (詳細分析用)
+        if CREATE_DEPENDENCY_GRAPH:
+            # Generate Mermaid diagram (for detailed analysis)
             try:
                 mermaid = _visualize_dependencies(graph)
-                # 保存先ディレクトリ
-                debug_dir = os.path.join(ADDON_PATH, "debug")
+                # Output directory
+                debug_dir = os.path.join(ADDON_PATH, "docs", "debug")
                 os.makedirs(debug_dir, exist_ok=True)
                 viz_path = os.path.join(debug_dir, "module_dependencies.mmd")
                 with open(viz_path, "w", encoding="utf-8") as f:
                     f.write(mermaid)
-                print(f"依存関係図を生成: {viz_path}")
+                print(f"Generated dependency graph: {viz_path}")
             except Exception as e:
-                print(f"依存関係図生成エラー: {str(e)}")
+                print(f"Error generating dependency graph: {str(e)}")
 
     except ValueError as e:
         # ------------------------------------------------------
         # 循環依存検出時の代替処理（フォールバック）
         # ------------------------------------------------------
-        print(f"警告: {str(e)}")
-        print("循環依存を解決するために代替ソート方法を使用します...")
+        print(f"Warning: {str(e)}")
+        print("Using alternative sorting method to resolve circular dependencies...")
         sorted_modules = _alternative_sort(filtered_graph, module_names)
 
     # 未処理モジュールを末尾に追加
     remaining = [m for m in module_names if m not in sorted_modules]
     if remaining:
-        print(f"\n未処理モジュール追加: {', '.join(remaining)}")
+        print(f"\nAdding unprocessed modules: {', '.join(remaining)}")
         sorted_modules.extend(remaining)
 
     return sorted_modules
@@ -584,11 +600,11 @@ def _topological_sort(graph: Dict[str, List[str]]) -> List[str]:
     # 全ノードを処理できなかった場合は循環依存がある
     if len(sorted_order) != len(graph):
         cyclic = set(graph.keys()) - set(sorted_order)
-        raise ValueError(f"循環依存検出: {', '.join(cyclic)}")
+        raise ValueError(f"Circular dependency detected: {', '.join(cyclic)}")
 
-    # 重要: 依存関係グラフは「依存先→依存元」の方向なので
-    # ロード順序を正しくするには逆順にする（依存先が先、依存元が後）
-    return list(reversed(sorted_order))
+    # NOTE: Kahnのアルゴリズムは依存される側が先にくるリストを生成するため、逆順にする必要はない。
+    #       以前の reversed() は誤りだったため削除。
+    return sorted_order
 
 
 def _alternative_sort(graph: Dict[str, Set[str]], module_names: List[str]) -> List[str]:
@@ -613,13 +629,13 @@ def _alternative_sort(graph: Dict[str, Set[str]], module_names: List[str]) -> Li
     try:
         cycles = _detect_cycles(graph)
         if cycles:
-            print("\n=== 検出された循環依存 ===")
+            print("\n=== Detected circular dependencies ===")
             for i, cycle in enumerate(cycles, 1):
                 print(
-                    f"循環 {i}: {' → '.join(short_name(m) for m in cycle)} → {short_name(cycle[0])}"
+                    f"Circular {i}: {' → '.join(short_name(m) for m in cycle)} → {short_name(cycle[0])}"
                 )
     except Exception as e:
-        print(f"循環検出エラー: {str(e)}")
+        print(f"Circular dependency detection error: {str(e)}")
         cycles = []
 
     # 基本的なソート順：アドオンモジュール → util系 → core系 → 他のモジュール
@@ -748,11 +764,12 @@ def _visualize_dependencies(graph: Dict[str, Set[str]], file_path: str = None) -
     # Mermaid図の生成
     mermaid = "---\n"
     mermaid += "config:\n"
-    mermaid += "  theme: default\n"
+    mermaid += "  theme: mc\n"
+    mermaid += "  layout: elk\n"
     mermaid += "  flowchart:\n"
     mermaid += "    curve: basis\n"
     mermaid += "---\n"
-    mermaid += "flowchart TD\n"
+    mermaid += "flowchart RL\n"
 
     # ノード定義
     for module in sorted(all_modules):
@@ -766,7 +783,7 @@ def _visualize_dependencies(graph: Dict[str, Set[str]], file_path: str = None) -
             mermaid += f"    {node_id}({short})\n"
 
     # エッジ定義
-    for src, dst in edges:
+    for src, dst in sorted(edges):
         src_id = short_names[src].replace(".", "_")
         dst_id = short_names[dst].replace(".", "_")
         mermaid += f"    {src_id} --> {dst_id}\n"
@@ -799,39 +816,37 @@ def register_modules() -> None:
     classes = _get_classes()
     success = True
 
-    # クラス登録
+    # Register classes
     for cls in classes:
         try:
             _validate_class(cls)
             bpy.utils.register_class(cls)
             if DBG_INIT:
-                print(f"✓ 登録完了: {cls.__name__}")
+                print(f"✓ Registered: {cls.__name__}")
         except Exception as e:
             success = False
-            print(f"✗ クラス登録失敗: {cls.__name__}")
-            print(f"   理由: {str(e)}")
-            print(f"   モジュール: {cls.__module__}")
+            print(f"✗ Failed to register class: {cls.__name__}")
+            print(f"   Reason: {str(e)}")
+            print(f"   Module: {cls.__module__}")
             if hasattr(cls, "__annotations__"):
-                print(f"   アノテーション: {list(cls.__annotations__.keys())}")
+                print(f"   Annotations: {list(cls.__annotations__.keys())}")
 
-    # モジュール初期化
+    # Initialize modules
     for mod_name in MODULE_NAMES:
         try:
             mod = sys.modules[mod_name]
             if hasattr(mod, "register"):
                 mod.register()
                 if DBG_INIT:
-                    print(f"✓ 初期化完了: {mod_name}")
+                    print(f"✓ Initialized: {mod_name}")
         except Exception as e:
             success = False
-            print(f"✗ モジュール初期化失敗: {mod_name}")
-            print(f"   理由: {str(e)}")
-            import traceback
-
+            print(f"✗ Failed to initialize module: {mod_name}")
+            print(f"   Reason: {str(e)}")
             traceback.print_exc()
 
     if not success:
-        print("警告: 一部コンポーネントの初期化に失敗しました")
+        print("Warning: Some components failed to initialize")
 
 
 def unregister_modules() -> None:
@@ -852,14 +867,14 @@ def unregister_modules() -> None:
             if hasattr(mod, "unregister"):
                 mod.unregister()
         except Exception as e:
-            print(f"モジュール登録解除エラー: {mod_name} - {str(e)}")
+            print(f"Module unregistration error: {mod_name} - {str(e)}")
 
     # クラス登録解除
     for cls in reversed(_get_classes()):
         try:
             bpy.utils.unregister_class(cls)
         except Exception as e:
-            print(f"クラス登録解除エラー: {cls.__name__} - {str(e)}")
+            print(f"Class unregistration error: {cls.__name__} - {str(e)}")
 
 
 # ======================================================
@@ -951,7 +966,7 @@ def _get_classes(force: bool = True) -> List[bpy.types.bpy_struct]:
         """深さ優先探索による依存関係解決"""
         if cls in stack:
             cycle = " → ".join([c.__name__ for c in stack])
-            raise ValueError(f"クラス循環依存: {cycle}")
+            raise ValueError(f"Circular class dependency: {cycle}")
         if cls not in visited:
             stack.append(cls)
             visited.add(cls)
@@ -980,6 +995,7 @@ def _is_bpy_class(obj) -> bool:
     bpy構造体クラスか判定
 
     Blenderに登録可能なクラスを識別します。
+    アドオン独自のクラスのみを検出します。
 
     Args:
         obj: 判定する対象
@@ -991,26 +1007,27 @@ def _is_bpy_class(obj) -> bool:
         inspect.isclass(obj)
         and issubclass(obj, bpy.types.bpy_struct)
         and obj.__base__ is not bpy.types.bpy_struct
+        and obj.__module__.startswith(ADDON_ID)
     )
 
 
 def _validate_class(cls: bpy.types.bpy_struct) -> None:
     """
-    クラスの有効性を検証
+    Validate class validity
 
-    Blenderに登録可能なクラスか確認します。
+    Check if the class is valid for registration in Blender.
 
     Args:
-        cls: 検証するクラス
+        cls: The class to validate
 
     Raises:
-        ValueError: bl_rna属性がない場合
-        TypeError: 適切な型でない場合
+        ValueError: If bl_rna attribute is missing
+        TypeError: If the class is not of the appropriate type
     """
     if not hasattr(cls, "bl_rna"):
-        raise ValueError(f"クラス {cls.__name__} にbl_rna属性がありません")
+        raise ValueError(f"Class {cls.__name__} has no bl_rna attribute")
     if not issubclass(cls, bpy.types.bpy_struct):
-        raise TypeError(f"無効なクラス型: {cls.__name__}")
+        raise TypeError(f"Invalid class type: {cls.__name__}")
 
 
 # ======================================================
@@ -1018,7 +1035,7 @@ def _validate_class(cls: bpy.types.bpy_struct) -> None:
 # ======================================================
 
 
-class Timeout(bpy.types.Operator):
+class Timeout:
     """
     遅延実行用オペレータ
 
@@ -1039,7 +1056,6 @@ class Timeout(bpy.types.Operator):
     _finished = False
 
     def modal(self, context, event):
-        """モーダルイベント処理"""
         if event.type == "TIMER":
             if self._finished:
                 context.window_manager.event_timer_remove(self._timer)
@@ -1052,17 +1068,21 @@ class Timeout(bpy.types.Operator):
                     func, args = self._data[self.idx]
                     func(*args)
                 except Exception as e:
-                    print(f"タイムアウトエラー: {str(e)}")
+                    print(f"Timeout error: {str(e)}")
         return {"PASS_THROUGH"}
 
     def execute(self, context):
-        """オペレータ実行"""
         self._finished = False
         context.window_manager.modal_handler_add(self)
         self._timer = context.window_manager.event_timer_add(
             self.delay, window=context.window
         )
         return {"RUNNING_MODAL"}
+
+
+TimeoutOperator = type(
+    "%s_OT_timeout" % ADDON_PREFIX, (Timeout, bpy.types.Operator), {}
+)
 
 
 def timeout(func: callable, *args) -> None:
