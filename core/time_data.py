@@ -87,7 +87,7 @@ class TimeData:
         print("TimeData initialized")
 
     def reset(self):
-        """Reset all data to defaults"""
+        """すべてのデータをデフォルト値にリセットする"""
         self.total_time = 0
         self.last_save_time = time.time()
         self.sessions = []
@@ -95,7 +95,7 @@ class TimeData:
         self.current_session_start = None
 
     def ensure_loaded(self):
-        """Make sure data is loaded (safe to call after Blender is fully initialized)"""
+        """データが読み込まれていることを保証する（Blenderが完全に初期化された後で安全に呼び出せる）"""
         if not self.data_loaded:
             self.load_data()
             self.data_loaded = True
@@ -134,7 +134,7 @@ class TimeData:
         return session_id
 
     def switch_session(self):
-        """現在のセッションを終了し、新しいセッションを開始"""
+        """現在のセッションを終了し、新しいセッションを開始する"""
         # アクティブなセッションを終了
         ended_count = self.end_active_sessions()
         if ended_count == 0:
@@ -151,7 +151,7 @@ class TimeData:
         return True
 
     def reset_current_session(self):
-        """現在のセッションをリセット"""
+        """現在のセッションをリセットする"""
         if not self.sessions:
             return False
 
@@ -180,7 +180,7 @@ class TimeData:
         return True
 
     def end_active_sessions(self):
-        """アクティブなセッションを終了"""
+        """アクティブなセッションを終了する"""
         end_time = time.time()
         ended_count = 0
 
@@ -205,13 +205,13 @@ class TimeData:
         return ended_count
 
     def get_current_session(self):
-        """現在のアクティブなセッションを取得"""
+        """現在のアクティブなセッションを取得する"""
         if not self.sessions:
             return None
         return next((s for s in reversed(self.sessions) if s.get("end") is None), None)
 
     def set_session_comment(self, comment):
-        """現在のセッションにコメントを設定"""
+        """現在のセッションにコメントを設定する"""
         current_session = self.get_current_session()
         if current_session:
             current_session["comment"] = comment
@@ -220,7 +220,7 @@ class TimeData:
         return False
 
     def get_session_comment(self):
-        """現在のセッションのコメントを取得"""
+        """現在のセッションのコメントを取得する"""
         current_session = self.get_current_session()
         return current_session.get("comment", "") if current_session else ""
 
@@ -314,7 +314,7 @@ class TimeData:
             print(f"No existing time data found for {self.file_id}, using new data")
 
     def update_session(self):
-        """Update the current session duration"""
+        """現在のセッションの継続時間を更新する"""
         current_session = self.get_current_session()
         if current_session:
             # 現在のセッション時間を計算
@@ -334,7 +334,7 @@ class TimeData:
         return 0
 
     def save_data(self):
-        """Save time data to text block"""
+        """時間データをテキストブロックに保存する"""
         # 現在のセッションを更新
         self.update_session()
 
@@ -364,30 +364,30 @@ class TimeData:
             print("Failed to create or access text block for saving")
 
     def get_current_session_time(self):
-        """Get time spent in current session"""
+        """現在のセッションで費やした時間を取得する"""
         current_session = self.get_current_session()
         if current_session:
             return time.time() - current_session["start"]
         return 0
 
     def get_time_since_last_save(self):
-        """Get time since last save"""
+        """最後に保存してからの経過時間を取得する"""
         return time.time() - self.last_save_time
 
     def get_formatted_total_time(self):
-        """Get formatted total time"""
+        """合計時間をフォーマットして取得する"""
         return format_time(self.total_time)
 
     def get_formatted_session_time(self):
-        """Get formatted session time"""
+        """セッション時間をフォーマットして取得する"""
         return format_time(self.get_current_session_time())
 
     def get_formatted_time_since_save(self):
-        """Get formatted time since last save"""
+        """最後の保存からの経過時間をフォーマットして取得する"""
         return format_time(self.get_time_since_last_save())
 
     def format_time(self, seconds):
-        """Format time in seconds to human readable format"""
+        """秒数を人間が読みやすい形式にフォーマットする"""
         return format_time(seconds)
 
 
@@ -398,7 +398,7 @@ class TimeDataManager:
     
     @classmethod
     def get_instance(cls):
-        """TimeDataのシングルトンインスタンスを取得"""
+        """TimeDataのシングルトンインスタンスを取得する"""
         if cls._instance is None:
             print("Creating new TimeData instance")
             cls._instance = TimeData()
@@ -407,7 +407,7 @@ class TimeDataManager:
     
     @classmethod
     def clear_instance(cls):
-        """TimeDataのインスタンスをクリア"""
+        """TimeDataのインスタンスをクリアする"""
         if cls._instance:
             print("Clearing TimeData instance")
             cls._instance.end_active_sessions()
@@ -448,7 +448,7 @@ def save_handler(_dummy):
 
 
 def update_time_callback():
-    """タイマーコールバック - 定期的に時間を更新"""
+    """タイマーコールバック - 定期的に時間を更新する"""
     # 時間データのインスタンスを取得
     time_data = TimeDataManager.get_instance()
 
@@ -486,14 +486,14 @@ def delayed_start():
 
 
 def start_timer():
-    """タイマーを開始"""
+    """タイマーを開始する"""
     global timer
     if timer is None:
         timer = bpy.app.timers.register(update_time_callback, persistent=True)
 
 
 def stop_timer():
-    """Stop the timer and save data"""
+    """タイマーを停止し、データを保存する"""
     global timer
     if timer and timer in bpy.app.timers.registered:
         bpy.app.timers.unregister(timer)
@@ -503,7 +503,7 @@ def stop_timer():
 
 
 def get_file_modification_time():
-    """Get the modification time of the current file"""
+    """現在のファイルの更新日時を取得する"""
     if bpy.data.filepath and os.path.exists(bpy.data.filepath):
         return os.path.getmtime(bpy.data.filepath)
     return time.time()
