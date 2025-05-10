@@ -12,9 +12,6 @@ from ..utils.formatting import format_hours_minutes
 # Constants
 UNSAVED_WARNING_THRESHOLD = 10 * 60  # 10 minutes in seconds
 
-# モジュールの依存関係を明示的に指定
-# DEPENDS_ON = ["core.time_data", "utils.formatting"]
-
 
 class VIEW3D_PT_time_tracker(bpy.types.Panel):
     """Time Tracker Panel"""

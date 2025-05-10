@@ -10,9 +10,6 @@ import bpy
 from ..core.time_data import TimeDataManager
 from ..utils.formatting import format_time
 
-# モジュールの依存関係を明示的に指定
-# DEPENDS_ON = ["core.time_data", "utils.formatting"]
-
 
 class TIMETRACKER_OT_edit_comment(bpy.types.Operator):
     """セッションコメントを編集"""
