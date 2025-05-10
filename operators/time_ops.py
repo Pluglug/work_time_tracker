@@ -10,6 +10,10 @@ import bpy
 from ..core.time_data import TimeDataManager
 from ..utils.formatting import format_time
 
+# from ..utils.logging import get_logger
+
+# log = get_logger(__name__)
+
 
 class TIMETRACKER_OT_edit_comment(bpy.types.Operator):
     """セッションコメントを編集"""
@@ -117,9 +121,7 @@ class TIMETRACKER_OT_export_data(bpy.types.Operator):
         if time_data:
             # Create a report
             current_time = datetime.datetime.now()
-            report_name = (
-                f"WorkTimeReport_{current_time.strftime('%Y%m%d_%H%M%S')}.md"
-            )
+            report_name = f"WorkTimeReport_{current_time.strftime('%Y%m%d_%H%M%S')}.md"
             report = bpy.data.texts.new(report_name)
 
             # Get file name
@@ -135,9 +137,7 @@ class TIMETRACKER_OT_export_data(bpy.types.Operator):
 
             # Write report header
             report.write(f"# Work Time Report for {filename}\n")
-            report.write(
-                f"Generated: {current_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-            )
+            report.write(f"Generated: {current_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             report.write(
                 f"File created: {creation_date.strftime('%Y-%m-%d %H:%M:%S')}\n"
             )
@@ -145,9 +145,7 @@ class TIMETRACKER_OT_export_data(bpy.types.Operator):
 
             # Write summary
             report.write("## Summary\n")
-            report.write(
-                f"- Total work time: {time_data.get_formatted_total_time()}\n"
-            )
+            report.write(f"- Total work time: {time_data.get_formatted_total_time()}\n")
             report.write(
                 f"- Current session: {time_data.get_formatted_session_time()}\n"
             )
@@ -159,17 +157,17 @@ class TIMETRACKER_OT_export_data(bpy.types.Operator):
             # Write detailed session info
             report.write("## Session History\n")
             for i, session in enumerate(time_data.sessions):
-                start_time = datetime.datetime.fromtimestamp(
-                    session["start"]
-                ).strftime("%Y-%m-%d %H:%M:%S")
+                start_time = datetime.datetime.fromtimestamp(session["start"]).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
 
                 if session.get("end") is None:
                     end_time = "Active"
                     duration = time.time() - session["start"]
                 else:
-                    end_time = datetime.datetime.fromtimestamp(
-                        session["end"]
-                    ).strftime("%Y-%m-%d %H:%M:%S")
+                    end_time = datetime.datetime.fromtimestamp(session["end"]).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
                     duration = session["duration"]
 
                 formatted_duration = format_time(duration)
@@ -183,8 +181,6 @@ class TIMETRACKER_OT_export_data(bpy.types.Operator):
 
                 report.write("\n")
 
-            self.report(
-                {"INFO"}, f"Report exported to text editor: {report_name}"
-            )
+            self.report({"INFO"}, f"Report exported to text editor: {report_name}")
             return {"FINISHED"}
         return {"CANCELLED"}

@@ -8,6 +8,9 @@ import bpy
 
 from ..core.time_data import TimeDataManager
 from ..utils.formatting import format_hours_minutes
+from ..utils.logging import get_logger
+
+log = get_logger(__name__)
 
 # Constants
 UNSAVED_WARNING_THRESHOLD = 10 * 60  # 10 minutes in seconds
@@ -125,7 +128,7 @@ def time_tracker_draw(self, context):
     # TimeDataManagerからインスタンスを取得
     time_data = TimeDataManager.get_instance()
     if not time_data:
-        print("Time tracker not initialized")
+        log.warning("Time tracker not initialized")
         return
 
     layout = self.layout

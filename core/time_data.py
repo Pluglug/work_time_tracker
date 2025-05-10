@@ -11,6 +11,9 @@ import bpy
 from bpy.app.handlers import persistent
 
 from ..utils.formatting import format_time
+from ..utils.logging import get_logger
+
+log = get_logger(__name__)
 
 # Constants
 TEXT_NAME = ".work_time_tracker"
@@ -32,7 +35,7 @@ def blend_time_data():
     # まず完全一致で検索
     if name in bpy.data.texts:
         text_block = bpy.data.texts[name]
-        print(f"Found primary time tracking data: {name}")
+        log.info(f"Found primary time tracking data: {name}")
     else:
         # 代替のテキストブロックを検索
         for text in bpy.data.texts:
@@ -41,15 +44,15 @@ def blend_time_data():
                 # 名前を標準化
                 try:
                     text.name = name
-                    print(f"Renamed time tracking data from {text.name} to {name}")
+                    log.error(f"Renamed time tracking data from {text.name} to {name}")
                 except Exception as e:
-                    print(f"Warning: Could not rename text block: {e}")
+                    log.error(f"Warning: Could not rename text block: {e}")
                 break
 
     # テキストブロックが見つからない場合は新規作成
     if not text_block:
         text_block = bpy.data.texts.new(name)
-        print(f"Created new time tracking data: {name}")
+        log.info(f"Created new time tracking data: {name}")
 
         # 初期データを設定
         initial_data = {
@@ -84,7 +87,7 @@ class TimeData:
         self.current_session_start = None
         self.data_loaded = False  # このフラグは必要
 
-        print("TimeData initialized")
+        log.debug("TimeData initialized")
 
     def reset(self):
         """すべてのデータをデフォルト値にリセットする"""
@@ -106,8 +109,8 @@ class TimeData:
         active_sessions = [s for s in self.sessions if s.get("end") is None]
 
         if active_sessions:
-            print(
-                f"Warning: {len(active_sessions)} active sessions found, ending them first"
+            log.warning(
+                f"{len(active_sessions)} active sessions found, ending them first"
             )
             self.end_active_sessions()
 
@@ -127,7 +130,7 @@ class TimeData:
             }
         )
 
-        print(
+        log.info(
             f"Started session #{session_id} at "
             f"{datetime.datetime.fromtimestamp(self.current_session_start)}"
         )
@@ -138,13 +141,13 @@ class TimeData:
         # アクティブなセッションを終了
         ended_count = self.end_active_sessions()
         if ended_count == 0:
-            print("No active sessions to end")
+            log.info("No active sessions to end")
         else:
-            print(f"Ended {ended_count} active sessions")
+            log.info(f"Ended {ended_count} active sessions")
 
         # 新しいセッションを開始
         new_session_id = self.start_session()
-        print(f"Started new session #{new_session_id}")
+        log.info(f"Started new session #{new_session_id}")
 
         # データを保存
         self.save_data()
@@ -188,7 +191,7 @@ class TimeData:
             if session.get("end") is None:
                 session["end"] = end_time
                 session["duration"] = session["end"] - session["start"]
-                print(
+                log.info(
                     f"Ended session #{session.get('id', '?')}: "
                     f"{datetime.datetime.fromtimestamp(session['start'])} to "
                     f"{datetime.datetime.fromtimestamp(session['end'])}"
@@ -200,7 +203,7 @@ class TimeData:
             self.total_time = sum(
                 session.get("duration", 0) for session in self.sessions
             )
-            print(f"Updated total time: {format_time(self.total_time)}")
+            log.info(f"Updated total time: {format_time(self.total_time)}")
 
         return ended_count
 
@@ -246,7 +249,7 @@ class TimeData:
             last_modified = time.time()
             file_exists = False
 
-        print(f"Loading data for file: {current_file_id}")
+        log.info(f"Loading data for file: {current_file_id}")
 
         # ファイルIDを設定
         self.file_id = current_file_id
@@ -284,7 +287,7 @@ class TimeData:
                                     session["duration"] = (
                                         session["end"] - session["start"]
                                     )
-                                    print(
+                                    log.info(
                                         f"Updated session #{session.get('id', '?')} "
                                         f"end time using file's last modified time"
                                     )
@@ -294,24 +297,26 @@ class TimeData:
                                 session.get("duration", 0) for session in self.sessions
                             )
 
-                        print(
+                        log.info(
                             f"Loaded time data: {len(self.sessions)} sessions, "
                             f"{format_time(self.total_time)} total time"
                         )
                     else:
-                        print(
+                        log.info(
                             f"File ID mismatch: stored={stored_file_id}, "
                             f"current={self.file_id}"
                         )
                         # ファイルが違う場合は既に実行したresetの値を使用
                 else:
-                    print("Empty text block, using default data")
+                    log.warning("Empty text block, using default data")
             except Exception as e:
-                print(f"Error loading time data: {str(e)}")
+                log.warning(f"Error loading time data: {str(e)}")
                 # エラーの場合はデフォルト値を使用
         else:
             # テキストブロックが存在しない場合
-            print(f"No existing time data found for {self.file_id}, using new data")
+            log.warning(
+                f"No existing time data found for {self.file_id}, using new data"
+            )
 
     def update_session(self):
         """現在のセッションの継続時間を更新する"""
@@ -356,12 +361,12 @@ class TimeData:
         if text_block:
             text_block.clear()
             text_block.write(json.dumps(data, indent=2))
-            print(
+            log.info(
                 f"Saved time data: {len(self.sessions)} sessions, "
                 f"{format_time(self.total_time)} total time"
             )
         else:
-            print("Failed to create or access text block for saving")
+            log.error("Failed to create or access text block for saving")
 
     def get_current_session_time(self):
         """現在のセッションで費やした時間を取得する"""
@@ -393,23 +398,23 @@ class TimeData:
 
 class TimeDataManager:
     """時間データマネージャー（シングルトン）"""
-    
+
     _instance = None
-    
+
     @classmethod
     def get_instance(cls):
         """TimeDataのシングルトンインスタンスを取得する"""
         if cls._instance is None:
-            print("Creating new TimeData instance")
+            log.debug("Creating new TimeData instance")
             cls._instance = TimeData()
             cls._instance.ensure_loaded()
         return cls._instance
-    
+
     @classmethod
     def clear_instance(cls):
         """TimeDataのインスタンスをクリアする"""
         if cls._instance:
-            print("Clearing TimeData instance")
+            log.debug("Clearing TimeData instance")
             cls._instance.end_active_sessions()
             cls._instance.save_data()
         cls._instance = None
@@ -427,7 +432,7 @@ def load_handler(_dummy):
     # 新しいセッションを開始
     time_data.start_session()
 
-    print(f"File loaded: {bpy.data.filepath}")
+    log.info(f"File loaded: {bpy.data.filepath}")
 
 
 @persistent
@@ -440,7 +445,7 @@ def save_handler(_dummy):
     if bpy.data.filepath:
         old_id = time_data.file_id
         time_data.file_id = bpy.path.basename(bpy.data.filepath)
-        print(f"File saved: Updated file_id from {old_id} to {time_data.file_id}")
+        log.info(f"File saved: Updated file_id from {old_id} to {time_data.file_id}")
 
     # Just update the current session (don't end it) and save
     # No new session should be created on save
@@ -457,7 +462,7 @@ def update_time_callback():
     # Check if filepath has changed, which might indicate new file via "Save As"
     filepath = getattr(bpy.data, "filepath", "")
     if filepath and time_data.file_id != bpy.path.basename(filepath):
-        print(
+        log.info(
             f"Detected file path change during timer: {time_data.file_id} -> "
             f"{bpy.path.basename(filepath)}"
         )
@@ -479,7 +484,7 @@ def delayed_start():
     # 時間データのインスタンスを取得
     time_data = TimeDataManager.get_instance()
     time_data.ensure_loaded()
-    
+
     # タイマーを開始
     start_timer()
     return None  # 一度だけ実行
@@ -525,11 +530,11 @@ def unregister():
         bpy.app.handlers.load_post.remove(load_handler)
     if save_handler in bpy.app.handlers.save_post:
         bpy.app.handlers.save_post.remove(save_handler)
-    
+
     # タイマーを停止
     stop_timer()
-    
+
     # インスタンスをクリア
     TimeDataManager.clear_instance()
-    
-    print("Time data module unregistered")
+
+    log.debug("Time data module unregistered")
