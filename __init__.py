@@ -31,6 +31,7 @@ addon.init_addon(
         "ui.*",
         "operators.*",
         "utils.*",
+        "preferences",
     ],
     use_reload=use_reload,
 )
