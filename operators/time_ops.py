@@ -1,3 +1,4 @@
+# pyright: reportInvalidTypeForm=false
 """
 時間トラッカーのオペレータモジュール
 """
@@ -7,6 +8,7 @@ import time
 
 import bpy
 from bpy.types import Operator
+from bpy.props import StringProperty
 
 from ..core.time_data import TimeDataManager
 from ..utils.formatting import format_time
@@ -24,7 +26,7 @@ class TIMETRACKER_OT_edit_comment(Operator):
     bl_description = "Edit comment for the current session"
     bl_options = {"REGISTER", "UNDO"}
 
-    comment: bpy.props.StringProperty(
+    comment: StringProperty(
         name="コメント", description="セッションのコメント", default=""
     )
 

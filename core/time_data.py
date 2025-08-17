@@ -21,9 +21,6 @@ DATA_VERSION = 1  # データ形式のバージョン管理用
 
 timer = None
 
-# モジュールの依存関係を明示的に指定
-# DEPENDS_ON = ["utils.formatting"]
-
 
 def blend_time_data():
     """Get time tracking data for current blend file, create if doesn't exist"""
