@@ -203,7 +203,9 @@ class TIMETRACKER_OT_clear_breaks(Operator):
             return {"CANCELLED"}
 
         # 終了処理中なら閉じる
-        if pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions):
+        if pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(
+            pg.break_sessions
+        ):
             br = pg.break_sessions[pg.active_break_index]
             if br.start > 0.0:
                 now = time.time()

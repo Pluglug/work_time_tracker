@@ -29,7 +29,11 @@ class WTT_UL_sessions(UIList):
         row.alignment = "LEFT"
         # 最小項目: 番号 / 合計(セッション)時間 / コメント編集
         row.label(text=f"#{item.id}")
-        dur_sec = item.duration if item.end > 0 else (max(0.0, time.time() - item.start) if item.start > 0 else 0.0)
+        dur_sec = (
+            item.duration
+            if item.end > 0
+            else (max(0.0, time.time() - item.start) if item.start > 0 else 0.0)
+        )
         row.label(text=format_time(dur_sec))
         # コメントはpropで直接編集
         ui_prop(row, item, "comment", text="", emboss=False, placeholder="Comment")
@@ -48,7 +52,11 @@ class WTT_UL_breaks(UIList):
         row.alignment = "LEFT"
         row.label(text=f"#{item.id}")
 
-        dur = item.duration if item.end > 0 else (max(0.0, time.time() - item.start) if item.start > 0 else 0.0)
+        dur = (
+            item.duration
+            if item.end > 0
+            else (max(0.0, time.time() - item.start) if item.start > 0 else 0.0)
+        )
         row.label(text=format_time(dur))
         # 休憩コメント編集
         ui_prop(row, item, "comment", text="", emboss=False, placeholder="Comment")
@@ -96,7 +104,9 @@ class VIEW3D_PT_time_tracker(Panel):
 
             # Show warning if unsaved for too long
             prefs = get_prefs(context)
-            warn_threshold = max(30, int(getattr(prefs, "unsaved_warning_threshold_seconds", 600)))
+            warn_threshold = max(
+                30, int(getattr(prefs, "unsaved_warning_threshold_seconds", 600))
+            )
             if context.blend_data.is_dirty and time_since_save > warn_threshold:
                 # row_alert = layout.row()
                 row.alert = True
@@ -139,7 +149,11 @@ class VIEW3D_PT_time_tracker(Panel):
                     state_row.label(text="Now: Working")
 
                 # アイドル経過
-                idle = max(0.0, time.time() - pg.last_activity_time) if pg.last_activity_time > 0 else 0.0
+                idle = (
+                    max(0.0, time.time() - pg.last_activity_time)
+                    if pg.last_activity_time > 0
+                    else 0.0
+                )
                 bc.label(text=f"Idle: {format_time(idle)}")
 
                 # 一覧
@@ -155,7 +169,9 @@ class VIEW3D_PT_time_tracker(Panel):
 
                 # 操作
                 ops = bc.row(align=True)
-                ops.operator("timetracker.clear_breaks", text="Clear Breaks", icon=ic("TRASH"))
+                ops.operator(
+                    "timetracker.clear_breaks", text="Clear Breaks", icon=ic("TRASH")
+                )
 
             # File info
             if time_data.file_id:
@@ -214,7 +230,7 @@ def time_tracker_draw(self, context):
     # セッションID表示
     td = TimeDataManager.get_instance()
     current = td.get_current_session() if td else None
-    sid = f"#{current['id']}" if current and 'id' in current else "#-"
+    sid = f"#{current['id']}" if current and "id" in current else "#-"
     compact_text = f"{total_time_str} | {session_time_str} ({sid})"
 
     row.popover(panel="VIEW3D_PT_time_tracker", text=compact_text, icon="TIME")
@@ -228,7 +244,9 @@ def time_tracker_draw(self, context):
         row_alert.label(text="Unsaved File", icon="ERROR")
     else:
         prefs = get_prefs(context)
-        warn_threshold = max(30, int(getattr(prefs, "unsaved_warning_threshold_seconds", 600)))
+        warn_threshold = max(
+            30, int(getattr(prefs, "unsaved_warning_threshold_seconds", 600))
+        )
         if context.blend_data.is_dirty and time_since_save > warn_threshold:
             row_alert = row.row(align=True)
             row_alert.alert = True

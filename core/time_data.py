@@ -74,8 +74,6 @@ class WTT_TimeData(PropertyGroup):
     active_break_index: IntProperty(name="Active Break Index", default=-1)
 
 
-
-
 class TimeData:
     """時間データを管理するクラス"""
 
@@ -106,8 +104,12 @@ class TimeData:
         if not pg:
             return
         self.total_time = float(pg.total_time)
-        self.last_save_time = float(pg.last_save_time) if pg.last_save_time else time.time()
-        self.file_creation_time = float(pg.file_creation_time) if pg.file_creation_time else time.time()
+        self.last_save_time = (
+            float(pg.last_save_time) if pg.last_save_time else time.time()
+        )
+        self.file_creation_time = (
+            float(pg.file_creation_time) if pg.file_creation_time else time.time()
+        )
         if pg.file_id:
             self.file_id = pg.file_id
 
@@ -383,11 +385,17 @@ class TimeData:
             # 休憩考慮: 終了済み休憩の合計 + 実行中休憩の経過を差し引く
             pg = self._pg()
             ongoing_break = 0.0
-            if pg and pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions):
+            if (
+                pg
+                and pg.is_on_break
+                and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions)
+            ):
                 br = pg.break_sessions[pg.active_break_index]
                 if br.start > 0.0:
                     ongoing_break = max(0.0, current_time - br.start)
-            session_duration = max(0.0, base - self.current_session_break_offset - ongoing_break)
+            session_duration = max(
+                0.0, base - self.current_session_break_offset - ongoing_break
+            )
 
             # トータル時間を増分で更新（終了済み合計 + 現在のセッション経過）
             self.total_time = float(self.closed_sessions_total) + session_duration
@@ -423,7 +431,11 @@ class TimeData:
         # 進行中休憩を控除
         pg = self._pg()
         ongoing_break = 0.0
-        if pg and pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions):
+        if (
+            pg
+            and pg.is_on_break
+            and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions)
+        ):
             br = pg.break_sessions[pg.active_break_index]
             if br.start > 0.0:
                 ongoing_break = max(0.0, now - br.start)
@@ -515,7 +527,9 @@ def depsgraph_activity_handler(_scene):
     # アクティビティ時刻更新
     pg.last_activity_time = now
     # 休憩中なら終了処理（時間確定）
-    if pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions):
+    if pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(
+        pg.break_sessions
+    ):
         br = pg.break_sessions[pg.active_break_index]
         if br.start > 0.0:
             br.end = now
