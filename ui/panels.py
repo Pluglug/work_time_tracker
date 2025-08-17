@@ -130,10 +130,10 @@ class VIEW3D_PT_time_tracker(Panel):
                 30, int(getattr(prefs, "unsaved_warning_threshold_seconds", 600))
             )
             if context.blend_data.is_dirty and time_since_save > warn_threshold:
-                # row_alert = layout.row()
+                row = summary_col.row()
                 row.alert = True
                 row.label(text=f"{time_data.get_formatted_time_since_save()}")
-                row_alert = layout.row()
+                row_alert = summary_col.row()
                 row_alert.alert = True
                 row_alert.label(text="Consider saving your work!")
             else:
@@ -145,6 +145,7 @@ class VIEW3D_PT_time_tracker(Panel):
             )
 
             # Sessions list
+            # TODO: 前のセッションとマージできるようにする
             pg = getattr(context.scene, "wtt_time_data", None)
             sessions_box = layout.box()
             col = sessions_box.column()
