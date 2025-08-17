@@ -2,9 +2,6 @@
 時間フォーマット用ユーティリティ
 """
 
-# モジュールの依存関係を明示的に指定
-# DEPENDS_ON = []
-
 
 def format_time(seconds):
     """

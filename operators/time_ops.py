@@ -6,6 +6,7 @@ import datetime
 import time
 
 import bpy
+from bpy.types import Operator
 
 from ..core.time_data import TimeDataManager
 from ..utils.formatting import format_time
@@ -15,7 +16,7 @@ from ..utils.formatting import format_time
 # log = get_logger(__name__)
 
 
-class TIMETRACKER_OT_edit_comment(bpy.types.Operator):
+class TIMETRACKER_OT_edit_comment(Operator):
     """セッションコメントを編集"""
 
     bl_idname = "timetracker.edit_comment"
@@ -47,7 +48,7 @@ class TIMETRACKER_OT_edit_comment(bpy.types.Operator):
         layout.prop(self, "comment")
 
 
-class TIMETRACKER_OT_switch_session(bpy.types.Operator):
+class TIMETRACKER_OT_switch_session(Operator):
     """現在のセッションを終了し、新しいセッションを開始"""
 
     bl_idname = "timetracker.switch_session"
@@ -67,7 +68,7 @@ class TIMETRACKER_OT_switch_session(bpy.types.Operator):
         return context.window_manager.invoke_confirm(self, event)
 
 
-class TIMETRACKER_OT_reset_session(bpy.types.Operator):
+class TIMETRACKER_OT_reset_session(Operator):
     """現在のセッションをリセット"""
 
     bl_idname = "timetracker.reset_session"
@@ -87,7 +88,7 @@ class TIMETRACKER_OT_reset_session(bpy.types.Operator):
         return context.window_manager.invoke_confirm(self, event)
 
 
-class TIMETRACKER_OT_reset_data(bpy.types.Operator):
+class TIMETRACKER_OT_reset_data(Operator):
     """Reset time tracking data"""
 
     bl_idname = "timetracker.reset_data"
@@ -108,7 +109,7 @@ class TIMETRACKER_OT_reset_data(bpy.types.Operator):
         return context.window_manager.invoke_confirm(self, event)
 
 
-class TIMETRACKER_OT_export_data(bpy.types.Operator):
+class TIMETRACKER_OT_export_data(Operator):
     """Export time tracking data"""
 
     bl_idname = "timetracker.export_data"

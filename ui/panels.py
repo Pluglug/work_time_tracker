@@ -4,7 +4,7 @@ UIパネルモジュール - 時間トラッカーのUIパネルを提供
 
 import datetime
 
-import bpy
+from bpy.types import Panel, STATUSBAR_HT_header
 
 from ..core.time_data import TimeDataManager
 from ..utils.formatting import format_hours_minutes
@@ -16,7 +16,7 @@ log = get_logger(__name__)
 UNSAVED_WARNING_THRESHOLD = 10 * 60  # 10 minutes in seconds
 
 
-class VIEW3D_PT_time_tracker(bpy.types.Panel):
+class VIEW3D_PT_time_tracker(Panel):
     """Time Tracker Panel"""
 
     bl_label = "Time Tracker"
@@ -155,8 +155,8 @@ def time_tracker_draw(self, context):
 
 
 def register():
-    bpy.types.STATUSBAR_HT_header.prepend(time_tracker_draw)
+    STATUSBAR_HT_header.prepend(time_tracker_draw)
 
 
 def unregister():
-    bpy.types.STATUSBAR_HT_header.remove(time_tracker_draw)
+    STATUSBAR_HT_header.remove(time_tracker_draw)

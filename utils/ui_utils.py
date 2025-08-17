@@ -3,6 +3,7 @@ import textwrap
 import bpy
 from bpy.app import version as BL_VERSION
 from bpy.types import Operator, UILayout
+from bpy.props import StringProperty
 
 from ..addon import ADDON_PREFIX, ADDON_PREFIX_PY
 from .logging import get_logger
@@ -44,7 +45,7 @@ class CopyTextToClipboard:
     bl_description = "Copy text to clipboard"
     bl_options = {"REGISTER"}
 
-    text: bpy.props.StringProperty(
+    text: StringProperty(
         name="Text", description="Text to copy to clipboard", default=""
     )
 
