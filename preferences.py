@@ -14,7 +14,6 @@ class WTT_Preferences(AddonPreferences):
     def draw(self, context):
         layout = self.layout
         col = layout.column()
-        col.label(text="Work Time Tracker Settings")
         col.prop(self, "unsaved_warning_threshold_seconds")
         col.prop(self, "break_threshold_seconds")
 

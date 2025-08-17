@@ -70,7 +70,7 @@ class VIEW3D_PT_time_tracker(Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Time"
-    bl_ui_units_x = 20
+    bl_ui_units_x = 15
 
     def draw(self, context):
         layout = self.layout
@@ -83,23 +83,45 @@ class VIEW3D_PT_time_tracker(Panel):
             layout.label(text="Time tracker not initialized")
             return
 
+        if self.is_popover:
+            layout.label(text="Work Time Tracker", icon="TIME")
+            layout.separator(type="LINE")
+
         if time_data:
             # Ensure data is loaded
             time_data.ensure_loaded()
 
+            summary_box = layout.box()
+            summary_col = summary_box.column()
+
+            # File info
+            if time_data.file_id:
+                row = summary_col.row()
+                row.label(text="File ID:")
+                row.alert = not context.blend_data.is_saved
+                row.label(text=time_data.file_id)
+
+                if time_data.file_creation_time:
+                    creation_time = datetime.datetime.fromtimestamp(
+                        time_data.file_creation_time
+                    )
+                    row = summary_col.row()
+                    row.label(text="Created:")
+                    row.label(text=creation_time.strftime("%Y-%m-%d %H:%M"))
+
             # Display total time
-            row = layout.row()
+            row = summary_col.row()
             row.label(text="Total Work Time:")
             row.label(text=time_data.get_formatted_total_time())
 
             # Display current session time
-            row = layout.row()
+            row = summary_col.row()
             row.label(text="Current Session:")
             row.label(text=time_data.get_formatted_session_time())
 
             # Display time since last save
             time_since_save = time_data.get_time_since_last_save()
-            row = layout.row()
+            row = summary_col.row()
             row.label(text="Time Since Save:")
 
             # Show warning if unsaved for too long
@@ -117,10 +139,15 @@ class VIEW3D_PT_time_tracker(Panel):
             else:
                 row.label(text=time_data.get_formatted_time_since_save())
 
+            row = summary_col.row()
+            row.operator(
+                "timetracker.export_data", text="Export Report", icon="TEXT"
+            )
+
             # Sessions list
             pg = getattr(context.scene, "wtt_time_data", None)
-            box = layout.box()
-            col = box.column()
+            sessions_box = layout.box()
+            col = sessions_box.column()
             header = col.row()
             header.label(text="Sessions", icon="TEXT")
             if pg:
@@ -133,20 +160,23 @@ class VIEW3D_PT_time_tracker(Panel):
                     "active_session_index",
                     rows=4,
                 )
+            col.operator(
+                "timetracker.switch_session", text="New Session", icon="FILE_REFRESH"
+            )
 
             # Breaks
-            b = layout.box()
-            bc = b.column()
+            breaks_box = layout.box()
+            bc = breaks_box.column()
             h = bc.row()
             h.label(text="Breaks", icon=ic("SORTTIME"))
             if pg:
                 # 状態表示
-                state_row = bc.row()
-                if pg.is_on_break:
-                    state_row.alert = True
-                    state_row.label(text="Now: On Break")
-                else:
-                    state_row.label(text="Now: Working")
+                # state_row = bc.row()
+                # if pg.is_on_break:
+                #     state_row.alert = True
+                #     state_row.label(text="Now: On Break")
+                # else:
+                #     state_row.label(text="Now: Working")
 
                 # アイドル経過
                 idle = (
@@ -154,7 +184,11 @@ class VIEW3D_PT_time_tracker(Panel):
                     if pg.last_activity_time > 0
                     else 0.0
                 )
-                bc.label(text=f"Idle: {format_time(idle)}")
+                row = bc.row()
+                row.alert = pg.is_on_break
+                row.label(text="Idle:")
+                state = "On Break" if pg.is_on_break else "Working"
+                row.label(text=f"{format_time(idle)} ({state})")
 
                 # 一覧
                 bc.template_list(
@@ -172,29 +206,6 @@ class VIEW3D_PT_time_tracker(Panel):
                 ops.operator(
                     "timetracker.clear_breaks", text="Clear Breaks", icon=ic("TRASH")
                 )
-
-            # File info
-            if time_data.file_id:
-                layout.separator()
-                row = layout.row()
-                row.label(text=f"File ID: {time_data.file_id}")
-
-                if time_data.file_creation_time:
-                    creation_time = datetime.datetime.fromtimestamp(
-                        time_data.file_creation_time
-                    )
-                    row = layout.row()
-                    row.label(
-                        text=f"Created: {creation_time.strftime('%Y-%m-%d %H:%M')}"
-                    )
-
-            # layout.separator()
-            layout.operator(
-                "timetracker.switch_session", text="New Session", icon="FILE_REFRESH"
-            )
-            layout.operator(
-                "timetracker.export_data", text="Export Report", icon="TEXT"
-            )
 
             # layout.separator()
             header, sub_panel = layout.panel(
@@ -227,16 +238,24 @@ def time_tracker_draw(self, context):
     total_time_str = format_hours_minutes(time_data.total_time)
     session_time_str = format_hours_minutes(time_data.get_current_session_time())
 
-    # セッションID表示
+    # セッション表示
     td = TimeDataManager.get_instance()
     current = td.get_current_session() if td else None
-    sid = f"#{current['id']}" if current and "id" in current else "#-"
-    compact_text = f"{total_time_str} | {session_time_str} ({sid})"
-
+    compact_text = f"{total_time_str} | {session_time_str}"
     row.popover(panel="VIEW3D_PT_time_tracker", text=compact_text, icon="TIME")
+
+    # セッション切替
+    sid = f"#{current['id']}" if current and "id" in current else "#-"
+    row.operator("timetracker.switch_session", text=sid)
 
     row.separator()
 
+    # 休憩状態
+    pg = getattr(context.scene, "wtt_time_data", None)
+    if pg and pg.is_on_break:
+        row.label(text="On Break", icon=ic("SORTTIME"))
+
+    # 未保存警告
     time_since_save = time_data.get_time_since_last_save()
     if not context.blend_data.is_saved:
         row_alert = row.row(align=True)
@@ -251,13 +270,6 @@ def time_tracker_draw(self, context):
             row_alert = row.row(align=True)
             row_alert.alert = True
             row_alert.label(text="Save Pending", icon="ERROR")
-
-    # 休憩状態のミニ表示
-    pg = getattr(context.scene, "wtt_time_data", None)
-    if pg and pg.is_on_break:
-        row_alert = row.row(align=True)
-        row_alert.alert = True
-        row_alert.label(text="On Break", icon=ic("SORTTIME"))
 
 
 def register():
