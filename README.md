@@ -1,63 +1,61 @@
 # Work Time Tracker
 
-Blenderでの作業時間と休憩を、セッション単位で記録します。
-手を止めた時間は自動で休憩として除外し、集中していた時間だけを積み上げます。
-あとから「どの作業にどれくらいかかったか」をすばやく振り返れます。
+Track work and breaks in Blender, organized by sessions. Idle time is automatically detected and excluded, so only focused work is counted. Review how long each task took at a glance.
 
-## 特徴
+## Features
 
-- 開くとすぐ計測開始
-  - ファイルを開いた瞬間にスタート。以後は自動更新。
-- 作業ごとに区切る
-  - `New Session` でタスク単位に切替可能。あとで集計しやすい構造に。
-- 手を止めたら休憩扱い
-  - しきい値を超えるアイドルを自動検出し、作業時間から除外。復帰で自動再開。
-- いつでも現在地を把握
-  - ステータスバーに `HH:MM | HH:MM (#ID)` を常時表示。クリックで詳細。未保存はリマインド。
-- 振り返りに使える記録
-  - セッションごとにメモ。`Export Report` で簡易レポート出力。
+- Start automatically
+  - Timing begins as soon as you open a file and keeps updating in the background.
+- Segment by task
+  - Use `New Session` to switch per task for cleaner summaries later.
+- Breaks by inactivity
+  - Detects idle beyond a threshold and excludes it. Resumes automatically on activity.
+- Always know where you are
+  - Status bar shows `HH:MM | HH:MM (#ID)` (total | session | session id). Click to open details. Unsaved reminder included.
+- Useful for review
+  - Per‑session notes and `Export Report` to a Markdown text block.
 
-## UI / 操作
+## UI / Operations
 
 <!-- ![Status Bar](docs/images/statusbar.png) -->
-- ステータスバー
-  - `HH:MM | HH:MM (#ID)` を表示（合計 | セッション | セッションID）
-  - 未保存の警告、休憩中インジケータ
+- Status Bar
+  - Displays `HH:MM | HH:MM (#ID)` (total | session | session id)
+  - Unsaved warning and on‑break indicator
 
 <!-- ![Panel](docs/images/panel.png) -->
-- パネル（View3D > Sidebar > Time > Time Tracker）
-  - 合計・現在セッション・最後の保存からの経過
-  - セッション/休憩リスト（番号、時間、コメント）
+- Panel (View3D > Sidebar > Time > Time Tracker)
+  - Total, current session, and time since last save
+  - Session/Break lists (index, time, comment)
 
-- オペレータ
-  - `New Session`: セッション切替
-  - `Export Report`: MarkdownレポートをTextエディタに生成
-  - `Clear Breaks`: 休憩履歴の削除
-  - `Reset Current Session`: 現在のセッションの計測を0から再開
-  - `Reset All Session`: 全セッションを削除し、直後に新規セッションを開始
+- Operators
+  - `New Session`: Switch to a new session
+  - `Export Report`: Generate a Markdown report in the Text Editor
+  - `Clear Breaks`: Clear break history
+  - `Reset Current Session`: Restart current session timing from zero
+  - `Reset All Session`: Delete all sessions and start a new one
 
-## 使い方
+## Location
 
-- ステータスバーの表示をクリックでパネルをポップオーバー表示
-- 3Dビューのサイドバー: `N` → `Time` → `Time Tracker`
+- Click the status bar display to open a popover panel
+- 3D Viewport Sidebar: `N` → `Time` → `Time Tracker`
 
-## 設定
+## Preferences
 
 Edit → Preferences → Add-ons → Work Time Tracker
 
-- Unsaved Warning Threshold (sec): 最後の保存からの経過警告（既定600秒）
-- Break Threshold (sec): アイドルを休憩とみなす時間（既定300秒）
+- Unsaved Warning Threshold (sec): Warn when unsaved duration exceeds this (default 600)
+- Break Threshold (sec): Consider inactivity as break after this (default 300)
 
-## その他
+## Notes
 
-- 保存（Save）ではセッションを終了しない。経過時間のみ更新
-- `Save As` 等でファイルパスが変わると、現行セッションを終了し新規セッションを開始
-- 合計時間は「終了済み + 現在の経過（休憩控除）」として算出
+- Save does not end the session; it only updates elapsed metrics
+- On `Save As` (file path change), the current session ends and a new one starts
+- Total time = closed sessions sum + current session elapsed (minus breaks)
 
-## チームマネージャーの皆さまへ
+## For Team Managers
 
-本アドオンは個人の自己管理用途を想定しています。チーム/管理者による使用の強制や監視目的での利用は想定していません。
+This add‑on is intended for personal self‑management. Enforcing usage or using it for monitoring is out of scope.
 
-## ライセンス
+## License
 
 GPL-3.0
