@@ -17,19 +17,6 @@ Blenderでの作業時間と休憩を、セッション単位で記録します�
 - 振り返りに使える記録
   - セッションごとにメモ。`Export Report` で簡易レポート出力。
 
-## 基本概念
-
-- トータル時間
-  - 終了済みセッションの合計 + 進行中セッションの経過
-- セッション
-  - ファイル読み込み時に開始
-  - `New Session` で手動切替、`Reset Current/All` でゼロから再計測
-  - セッションごとにコメント編集可
-- アイドルタイム
-  - 最終操作からのアイドルがしきい値を超えると開始、操作復帰で終了
-  - 履歴の参照・コメント・`Clear Breaks` で削除
-  - 休憩時間はトータル時間・セッション時間には加算されない。
-
 ## UI / 操作
 
 <!-- ![Status Bar](docs/images/statusbar.png) -->
@@ -61,17 +48,11 @@ Edit → Preferences → Add-ons → Work Time Tracker
 - Unsaved Warning Threshold (sec): 最後の保存からの経過警告（既定600秒）
 - Break Threshold (sec): アイドルを休憩とみなす時間（既定300秒）
 
-## 挙動メモ
+## その他
 
 - 保存（Save）ではセッションを終了しない。経過時間のみ更新
 - `Save As` 等でファイルパスが変わると、現行セッションを終了し新規セッションを開始
 - 合計時間は「終了済み + 現在の経過（休憩控除）」として算出
-
-## インストール
-
-1. 本リポジトリをZIPで取得
-2. Blender: Edit → Preferences → Add-ons → Install... でZIPを指定
-3. `Work Time Tracker` を有効化
 
 ## チームマネージャーの皆さまへ
 
