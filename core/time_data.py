@@ -1,75 +1,57 @@
+# pyright: reportInvalidTypeForm=false
 """
 時間データ管理モジュール
 """
 
 import datetime
-import json
 import os
 import time
 
 import bpy
 from bpy.app.handlers import persistent
+from bpy.types import PropertyGroup
+from bpy.props import (
+    FloatProperty,
+    IntProperty,
+    StringProperty,
+    CollectionProperty,
+    PointerProperty,
+)
 
 from ..utils.formatting import format_time
 from ..utils.logging import get_logger
 
 log = get_logger(__name__)
 
-# Constants
-TEXT_NAME = ".work_time_tracker"
 DATA_VERSION = 1  # データ形式のバージョン管理用
 
 timer = None
 
 
-def blend_time_data():
-    """Get time tracking data for current blend file, create if doesn't exist"""
-    name = TEXT_NAME + ".json"
+class WTT_TimeSession(PropertyGroup):
+    """セッション情報 (PropertyGroup)"""
 
-    # 既存のテキストブロックを探す
-    text_block = None
+    id: IntProperty(name="ID", default=0)
+    start: FloatProperty(name="Start", default=0.0)
+    end: FloatProperty(name="End", default=0.0)  # 0.0 はアクティブ（未終了）
+    duration: FloatProperty(name="Duration", default=0.0)
+    file_id: StringProperty(name="File ID", default="")
+    date: StringProperty(name="Date", default="")
+    comment: StringProperty(name="Comment", default="")
 
-    # まず完全一致で検索
-    if name in bpy.data.texts:
-        text_block = bpy.data.texts[name]
-        log.info(f"Found primary time tracking data: {name}")
-    else:
-        # 代替のテキストブロックを検索
-        for text in bpy.data.texts:
-            if text.name.startswith(TEXT_NAME):
-                text_block = text
-                # 名前を標準化
-                try:
-                    text.name = name
-                    log.error(f"Renamed time tracking data from {text.name} to {name}")
-                except Exception as e:
-                    log.error(f"Warning: Could not rename text block: {e}")
-                break
 
-    # テキストブロックが見つからない場合は新規作成
-    if not text_block:
-        text_block = bpy.data.texts.new(name)
-        log.info(f"Created new time tracking data: {name}")
+class WTT_TimeData(PropertyGroup):
+    """時間データ (PropertyGroup)"""
 
-        # 初期データを設定
-        initial_data = {
-            "version": DATA_VERSION,
-            "total_time": 0,
-            "last_save_time": time.time(),
-            "sessions": [],
-            "file_creation_time": time.time(),
-            "file_id": (
-                bpy.path.basename(bpy.data.filepath)
-                if bpy.data.filepath
-                else "unsaved_file"
-            ),
-        }
-        text_block.write(json.dumps(initial_data, indent=2))
+    version: IntProperty(name="Version", default=DATA_VERSION)
+    total_time: FloatProperty(name="Total Time", default=0.0)
+    last_save_time: FloatProperty(name="Last Save Time", default=0.0)
+    file_creation_time: FloatProperty(name="File Creation Time", default=0.0)
+    file_id: StringProperty(name="File ID", default="")
+    sessions: CollectionProperty(type=WTT_TimeSession)
+    active_session_index: IntProperty(name="Active Session Index", default=-1)
 
-    # fake_userフラグを確実に設定
-    text_block.use_fake_user = True
 
-    return text_block
 
 
 class TimeData:
@@ -85,6 +67,71 @@ class TimeData:
         self.data_loaded = False  # このフラグは必要
 
         log.debug("TimeData initialized")
+
+    # PropertyGroup 同期ヘルパー -----------------------------
+    def _pg(self):
+        """Sceneに紐づくPropertyGroupを取得"""
+        scene = getattr(bpy.context, "scene", None)
+        if not scene:
+            return None
+        return getattr(scene, "wtt_time_data", None)
+
+    def _sync_from_pg(self):
+        """PropertyGroupからローカル属性へ同期"""
+        pg = self._pg()
+        if not pg:
+            return
+        self.total_time = float(pg.total_time)
+        self.last_save_time = float(pg.last_save_time) if pg.last_save_time else time.time()
+        self.file_creation_time = float(pg.file_creation_time) if pg.file_creation_time else time.time()
+        if pg.file_id:
+            self.file_id = pg.file_id
+
+        sessions = []
+        for item in pg.sessions:
+            sessions.append(
+                {
+                    "id": int(item.id),
+                    "start": float(item.start),
+                    "end": None if item.end <= 0.0 else float(item.end),
+                    "duration": float(item.duration),
+                    "file_id": item.file_id,
+                    "date": item.date,
+                    "comment": item.comment,
+                }
+            )
+        self.sessions = sessions
+        current = self.get_current_session()
+        self.current_session_start = current["start"] if current else None
+
+    def _sync_to_pg(self):
+        """ローカル属性からPropertyGroupへ同期"""
+        pg = self._pg()
+        if not pg:
+            return
+        pg.version = DATA_VERSION
+        pg.total_time = float(self.total_time)
+        pg.last_save_time = float(self.last_save_time)
+        pg.file_creation_time = float(self.file_creation_time)
+        pg.file_id = self.file_id or ""
+
+        pg.sessions.clear()
+        for s in self.sessions:
+            item = pg.sessions.add()
+            item.id = int(s.get("id", 0))
+            item.start = float(s.get("start", 0.0))
+            end_val = s.get("end", None)
+            item.end = 0.0 if end_val is None else float(end_val)
+            item.duration = float(s.get("duration", 0.0))
+            item.file_id = s.get("file_id", "")
+            item.date = s.get("date", "")
+            item.comment = s.get("comment", "")
+
+        active_idx = -1
+        for i, s in enumerate(self.sessions):
+            if s.get("end") is None:
+                active_idx = i
+        pg.active_session_index = active_idx
 
     def reset(self):
         """すべてのデータをデフォルト値にリセットする"""
@@ -120,7 +167,7 @@ class TimeData:
                 "id": session_id,
                 "start": self.current_session_start,
                 "end": None,
-                "duration": 0,
+                "duration": 0.0,
                 "file_id": self.file_id,
                 "date": datetime.datetime.now().strftime("%Y-%m-%d"),
                 "comment": "",
@@ -131,6 +178,8 @@ class TimeData:
             f"Started session #{session_id} at "
             f"{datetime.datetime.fromtimestamp(self.current_session_start)}"
         )
+        # PGへ同期
+        self._sync_to_pg()
         return session_id
 
     def switch_session(self):
@@ -175,7 +224,8 @@ class TimeData:
         # 現在のセッション開始時間も更新
         self.current_session_start = current_session["start"]
 
-        # データを保存
+        # PGへ同期して保存
+        self._sync_to_pg()
         self.save_data()
         return True
 
@@ -201,6 +251,7 @@ class TimeData:
                 session.get("duration", 0) for session in self.sessions
             )
             log.info(f"Updated total time: {format_time(self.total_time)}")
+            self._sync_to_pg()
 
         return ended_count
 
@@ -215,6 +266,7 @@ class TimeData:
         current_session = self.get_current_session()
         if current_session:
             current_session["comment"] = comment
+            self._sync_to_pg()
             self.save_data()
             return True
         return False
@@ -225,15 +277,10 @@ class TimeData:
         return current_session.get("comment", "") if current_session else ""
 
     def load_data(self):
-        """テキストブロックからデータを読み込む"""
-        # 現在のファイルIDを保存（ファイルの識別用）
-        # old_file_id = self.file_id  # 未使用変数
-
+        """データを読み込む（PropertyGroupベース）"""
         # ファイルIDを現在のファイルに基づいて設定
         if bpy.data.filepath:
             current_file_id = bpy.path.basename(bpy.data.filepath)
-
-            # ファイルの最終更新時間を取得（ファイルが存在する場合のみ）
             try:
                 file_stat = os.stat(bpy.data.filepath)
                 last_modified = file_stat.st_mtime
@@ -247,73 +294,23 @@ class TimeData:
             file_exists = False
 
         log.info(f"Loading data for file: {current_file_id}")
-
-        # ファイルIDを設定
         self.file_id = current_file_id
 
-        # テキストブロックを取得
-        text_block = blend_time_data()
+        # PropertyGroup からの読み込み（既存データがある場合）
+        pg = self._pg()
+        if pg and (pg.file_id or len(pg.sessions) > 0):
+            self._sync_from_pg()
+            return
 
-        if text_block:
-            # テキストブロックからデータを読み込む
-            try:
-                text_content = text_block.as_string()
-                if text_content.strip():
-                    data = json.loads(text_content)
+        # 新規作成（PG未初期化）
+        self.total_time = 0
+        self.last_save_time = time.time()
+        self.sessions = []
+        self.file_creation_time = time.time()
 
-                    # データバージョンチェック (将来の互換性のため)
-                    # version = data.get("version", 1)  # 未使用変数
-                    stored_file_id = data.get("file_id")
-
-                    # ファイルIDが一致する場合のみデータを読み込む
-                    if stored_file_id == self.file_id:
-                        # データの内容をすべて読み込む
-                        self.total_time = data.get("total_time", 0)
-                        self.last_save_time = data.get("last_save_time", time.time())
-                        self.sessions = data.get("sessions", [])
-                        self.file_creation_time = data.get(
-                            "file_creation_time", time.time()
-                        )
-
-                        # 未終了のセッションがある場合、ファイルの最終更新時間を使用して終了
-                        if file_exists:
-                            for session in self.sessions:
-                                if session.get("end") is None and session.get("start"):
-                                    # 最終更新時間をセッション終了時間として使用
-                                    session["end"] = last_modified
-                                    session["duration"] = (
-                                        session["end"] - session["start"]
-                                    )
-                                    log.info(
-                                        f"Updated session #{session.get('id', '?')} "
-                                        f"end time using file's last modified time"
-                                    )
-
-                            # トータル時間を更新
-                            self.total_time = sum(
-                                session.get("duration", 0) for session in self.sessions
-                            )
-
-                        log.info(
-                            f"Loaded time data: {len(self.sessions)} sessions, "
-                            f"{format_time(self.total_time)} total time"
-                        )
-                    else:
-                        log.info(
-                            f"File ID mismatch: stored={stored_file_id}, "
-                            f"current={self.file_id}"
-                        )
-                        # ファイルが違う場合は既に実行したresetの値を使用
-                else:
-                    log.warning("Empty text block, using default data")
-            except Exception as e:
-                log.warning(f"Error loading time data: {str(e)}")
-                # エラーの場合はデフォルト値を使用
-        else:
-            # テキストブロックが存在しない場合
-            log.warning(
-                f"No existing time data found for {self.file_id}, using new data"
-            )
+        # PGへ初回同期し、メモリに反映
+        self._sync_to_pg()
+        self._sync_from_pg()
 
     def update_session(self):
         """現在のセッションの継続時間を更新する"""
@@ -332,38 +329,27 @@ class TimeData:
                 )
                 for session in self.sessions
             )
+            # PGへ反映
+            pg = self._pg()
+            if pg:
+                pg.total_time = float(self.total_time)
             return session_duration
         return 0
 
     def save_data(self):
-        """時間データをテキストブロックに保存する"""
+        """時間データを保存する（PropertyGroupに同期）"""
         # 現在のセッションを更新
         self.update_session()
 
         # 保存時間を更新
         self.last_save_time = time.time()
 
-        # データを構築
-        data = {
-            "version": DATA_VERSION,
-            "total_time": self.total_time,
-            "last_save_time": self.last_save_time,
-            "sessions": self.sessions,
-            "file_creation_time": self.file_creation_time,
-            "file_id": self.file_id,
-        }
+        # PGへ同期
+        self._sync_to_pg()
 
-        # テキストブロックに保存
-        text_block = blend_time_data()
-        if text_block:
-            text_block.clear()
-            text_block.write(json.dumps(data, indent=2))
-            log.info(
-                f"Saved time data: {len(self.sessions)} sessions, "
-                f"{format_time(self.total_time)} total time"
-            )
-        else:
-            log.error("Failed to create or access text block for saving")
+        log.info(
+            f"Saved time data: {len(self.sessions)} sessions, {format_time(self.total_time)} total time"
+        )
 
     def get_current_session_time(self):
         """現在のセッションで費やした時間を取得する"""
@@ -500,8 +486,9 @@ def stop_timer():
     if timer and timer in bpy.app.timers.registered:
         bpy.app.timers.unregister(timer)
     timer = None
-    if time_data:
-        time_data.save_data()
+    td = TimeDataManager.get_instance()
+    if td:
+        td.save_data()
 
 
 def get_file_modification_time():
@@ -513,6 +500,10 @@ def get_file_modification_time():
 
 def register():
     """モジュールの登録"""
+    # SceneにPropertyGroupへのポインタを追加
+    if not hasattr(bpy.types.Scene, "wtt_time_data"):
+        bpy.types.Scene.wtt_time_data = PointerProperty(type=WTT_TimeData)
+
     # ハンドラーを登録
     bpy.app.handlers.load_post.append(load_handler)
     bpy.app.handlers.save_post.append(save_handler)
@@ -533,5 +524,12 @@ def unregister():
 
     # インスタンスをクリア
     TimeDataManager.clear_instance()
+
+    # Sceneプロパティを削除
+    if hasattr(bpy.types.Scene, "wtt_time_data"):
+        try:
+            del bpy.types.Scene.wtt_time_data
+        except Exception:
+            pass
 
     log.debug("Time data module unregistered")
