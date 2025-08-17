@@ -14,12 +14,14 @@ from bpy.props import (
     FloatProperty,
     IntProperty,
     StringProperty,
+    BoolProperty,
     CollectionProperty,
     PointerProperty,
 )
 
 from ..utils.formatting import format_time
 from ..utils.logging import get_logger
+from ..addon import get_prefs
 
 log = get_logger(__name__)
 
@@ -40,6 +42,17 @@ class WTT_TimeSession(PropertyGroup):
     comment: StringProperty(name="Comment", default="")
 
 
+class WTT_BreakSession(PropertyGroup):
+    """休憩セッション情報 (PropertyGroup)"""
+
+    id: IntProperty(name="ID", default=0)
+    start: FloatProperty(name="Start", default=0.0)
+    end: FloatProperty(name="End", default=0.0)  # 0.0 はアクティブ（未終了）
+    duration: FloatProperty(name="Duration", default=0.0)
+    reason: StringProperty(name="Reason", default="inactivity")
+    comment: StringProperty(name="Comment", default="")
+
+
 class WTT_TimeData(PropertyGroup):
     """時間データ (PropertyGroup)"""
 
@@ -50,6 +63,15 @@ class WTT_TimeData(PropertyGroup):
     file_id: StringProperty(name="File ID", default="")
     sessions: CollectionProperty(type=WTT_TimeSession)
     active_session_index: IntProperty(name="Active Session Index", default=-1)
+
+    # Break tracking
+    break_threshold_seconds: IntProperty(
+        name="Break Threshold (sec)", default=300, min=30, max=3600
+    )
+    last_activity_time: FloatProperty(name="Last Activity Time", default=0.0)
+    is_on_break: BoolProperty(name="On Break", default=False)
+    break_sessions: CollectionProperty(type=WTT_BreakSession)
+    active_break_index: IntProperty(name="Active Break Index", default=-1)
 
 
 
@@ -65,6 +87,8 @@ class TimeData:
         self.file_id = None
         self.current_session_start = None
         self.data_loaded = False  # このフラグは必要
+        self.closed_sessions_total = 0.0
+        self.current_session_break_offset = 0.0
 
         log.debug("TimeData initialized")
 
@@ -101,8 +125,27 @@ class TimeData:
                 }
             )
         self.sessions = sessions
+        # 終了済みセッション合計を再計算
+        self.closed_sessions_total = sum(
+            s.get("duration", 0.0) for s in self.sessions if s.get("end") is not None
+        )
         current = self.get_current_session()
         self.current_session_start = current["start"] if current else None
+
+        # 休憩ステート
+        self.is_on_break = bool(getattr(pg, "is_on_break", False))
+        self.last_activity_time = float(getattr(pg, "last_activity_time", 0.0))
+        # 休憩セッション（必要ならキャッシュ化可能）
+        self.break_sessions = [
+            {
+                "id": int(b.id),
+                "start": float(b.start),
+                "end": None if b.end <= 0.0 else float(b.end),
+                "duration": float(b.duration),
+                "reason": b.reason,
+            }
+            for b in getattr(pg, "break_sessions", [])
+        ]
 
     def _sync_to_pg(self):
         """ローカル属性からPropertyGroupへ同期"""
@@ -133,6 +176,20 @@ class TimeData:
                 active_idx = i
         pg.active_session_index = active_idx
 
+        # 休憩同期
+        pg.is_on_break = bool(getattr(self, "is_on_break", False))
+        pg.last_activity_time = float(getattr(self, "last_activity_time", 0.0))
+        if hasattr(pg, "break_sessions"):
+            pg.break_sessions.clear()
+            for b in getattr(self, "break_sessions", []):
+                bi = pg.break_sessions.add()
+                bi.id = int(b.get("id", 0))
+                bi.start = float(b.get("start", 0.0))
+                bend = b.get("end", None)
+                bi.end = 0.0 if bend is None else float(bend)
+                bi.duration = float(b.get("duration", 0.0))
+                bi.reason = b.get("reason", "inactivity")
+
     def reset(self):
         """すべてのデータをデフォルト値にリセットする"""
         self.total_time = 0
@@ -140,6 +197,9 @@ class TimeData:
         self.sessions = []
         self.file_creation_time = time.time()
         self.current_session_start = None
+        self.closed_sessions_total = 0.0
+        # リセット直後に新規セッションを開始
+        self.start_session()
 
     def ensure_loaded(self):
         """データが読み込まれていることを保証する（Blenderが完全に初期化された後で安全に呼び出せる）"""
@@ -161,6 +221,7 @@ class TimeData:
         # 新しいセッションを開始
         self.current_session_start = time.time()
         session_id = len(self.sessions) + 1
+        self.current_session_break_offset = 0.0
 
         self.sessions.append(
             {
@@ -218,11 +279,11 @@ class TimeData:
         current_session["start"] = time.time()
         current_session["duration"] = 0
 
-        # トータル時間から古いセッション時間を引く
-        self.total_time -= old_duration
+        # 合計は次回updateで再計算（closed_sessions_totalは未変更）
 
         # 現在のセッション開始時間も更新
         self.current_session_start = current_session["start"]
+        self.current_session_break_offset = 0.0
 
         # PGへ同期して保存
         self._sync_to_pg()
@@ -243,13 +304,13 @@ class TimeData:
                     f"{datetime.datetime.fromtimestamp(session['start'])} to "
                     f"{datetime.datetime.fromtimestamp(session['end'])}"
                 )
+                # 増分更新: 終了した分を蓄積
+                self.closed_sessions_total += session["duration"]
                 ended_count += 1
 
         if ended_count > 0:
-            # トータル時間を更新
-            self.total_time = sum(
-                session.get("duration", 0) for session in self.sessions
-            )
+            # トータル時間を更新（全て終了状態なのでclosed合計のみ）
+            self.total_time = float(self.closed_sessions_total)
             log.info(f"Updated total time: {format_time(self.total_time)}")
             self._sync_to_pg()
 
@@ -318,17 +379,18 @@ class TimeData:
         if current_session:
             # 現在のセッション時間を計算
             current_time = time.time()
-            session_duration = current_time - current_session["start"]
+            base = current_time - current_session["start"]
+            # 休憩考慮: 終了済み休憩の合計 + 実行中休憩の経過を差し引く
+            pg = self._pg()
+            ongoing_break = 0.0
+            if pg and pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions):
+                br = pg.break_sessions[pg.active_break_index]
+                if br.start > 0.0:
+                    ongoing_break = max(0.0, current_time - br.start)
+            session_duration = max(0.0, base - self.current_session_break_offset - ongoing_break)
 
-            # トータル時間を更新
-            self.total_time = sum(
-                (
-                    session.get("duration", 0)
-                    if session.get("end") is not None
-                    else current_time - session.get("start", current_time)
-                )
-                for session in self.sessions
-            )
+            # トータル時間を増分で更新（終了済み合計 + 現在のセッション経過）
+            self.total_time = float(self.closed_sessions_total) + session_duration
             # PGへ反映
             pg = self._pg()
             if pg:
@@ -354,9 +416,18 @@ class TimeData:
     def get_current_session_time(self):
         """現在のセッションで費やした時間を取得する"""
         current_session = self.get_current_session()
-        if current_session:
-            return time.time() - current_session["start"]
-        return 0
+        if not current_session:
+            return 0
+        now = time.time()
+        base = now - current_session["start"]
+        # 進行中休憩を控除
+        pg = self._pg()
+        ongoing_break = 0.0
+        if pg and pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions):
+            br = pg.break_sessions[pg.active_break_index]
+            if br.start > 0.0:
+                ongoing_break = max(0.0, now - br.start)
+        return max(0.0, base - self.current_session_break_offset - ongoing_break)
 
     def get_time_since_last_save(self):
         """最後に保存してからの経過時間を取得する"""
@@ -435,12 +506,70 @@ def save_handler(_dummy):
     time_data.save_data()
 
 
+def depsgraph_activity_handler(_scene):
+    """依存グラフ更新時にアクティビティ時刻を更新して休憩復帰を早期検知"""
+    pg = getattr(bpy.context.scene, "wtt_time_data", None)
+    if not pg:
+        return
+    now = time.time()
+    # アクティビティ時刻更新
+    pg.last_activity_time = now
+    # 休憩中なら終了処理（時間確定）
+    if pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions):
+        br = pg.break_sessions[pg.active_break_index]
+        if br.start > 0.0:
+            br.end = now
+            br.duration = max(0.0, br.end - br.start)
+            # セッションオフセットに積み上げ（休憩中はセッション時間に含めない）
+            td = TimeDataManager.get_instance()
+            if td and td.get_current_session():
+                td.current_session_break_offset += br.duration
+    pg.is_on_break = False
+    pg.active_break_index = -1
+
+
 def update_time_callback():
     """タイマーコールバック - 定期的に時間を更新する"""
     # 時間データのインスタンスを取得
     time_data = TimeDataManager.get_instance()
 
+    # 作業時間更新
     time_data.update_session()
+
+    # 軽量アイドル検出と休憩管理（閾値はアドオンプリファレンスから）
+    pg = time_data._pg()
+    now = time.time()
+    if pg:
+        # 初期化（Blender起動直後など）
+        if pg.last_activity_time <= 0.0:
+            pg.last_activity_time = now
+
+        idle = now - pg.last_activity_time
+        try:
+            prefs = get_prefs(bpy.context)
+            threshold = int(getattr(prefs, "break_threshold_seconds", 300))
+        except Exception:
+            threshold = 300
+        threshold = max(30, threshold)
+        if not pg.is_on_break and idle >= threshold:
+            # 休憩開始
+            bi = pg.break_sessions.add()
+            bi.id = len(pg.break_sessions)
+            bi.start = now - idle
+            bi.end = 0.0
+            bi.duration = 0.0
+            bi.reason = "inactivity"
+            pg.active_break_index = len(pg.break_sessions) - 1
+            pg.is_on_break = True
+        elif pg.is_on_break and idle < 1.0:
+            # アクティビティ復帰直後: 休憩終了
+            idx = getattr(pg, "active_break_index", -1)
+            if 0 <= idx < len(pg.break_sessions):
+                br = pg.break_sessions[idx]
+                br.end = now
+                br.duration = max(0.0, br.end - br.start)
+            pg.is_on_break = False
+            pg.active_break_index = -1
 
     # Check if filepath has changed, which might indicate new file via "Save As"
     filepath = getattr(bpy.data, "filepath", "")
@@ -507,6 +636,9 @@ def register():
     # ハンドラーを登録
     bpy.app.handlers.load_post.append(load_handler)
     bpy.app.handlers.save_post.append(save_handler)
+    # 依存グラフ更新でアクティビティを検知（軽量: タイムスタンプ更新のみ）
+    if depsgraph_activity_handler not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(depsgraph_activity_handler)
 
     bpy.app.timers.register(delayed_start, first_interval=1.0)
 
@@ -518,6 +650,8 @@ def unregister():
         bpy.app.handlers.load_post.remove(load_handler)
     if save_handler in bpy.app.handlers.save_post:
         bpy.app.handlers.save_post.remove(save_handler)
+    if depsgraph_activity_handler in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(depsgraph_activity_handler)
 
     # タイマーを停止
     stop_timer()

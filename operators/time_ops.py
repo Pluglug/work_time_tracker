@@ -12,10 +12,9 @@ from bpy.props import StringProperty
 
 from ..core.time_data import TimeDataManager
 from ..utils.formatting import format_time
+from ..utils.logging import get_logger
 
-# from ..utils.logging import get_logger
-
-# log = get_logger(__name__)
+log = get_logger(__name__)
 
 
 class TIMETRACKER_OT_edit_comment(Operator):
@@ -187,3 +186,34 @@ class TIMETRACKER_OT_export_data(Operator):
             self.report({"INFO"}, f"Report exported to text editor: {report_name}")
             return {"FINISHED"}
         return {"CANCELLED"}
+
+
+class TIMETRACKER_OT_clear_breaks(Operator):
+    """Clear all break sessions and reset break state"""
+
+    bl_idname = "timetracker.clear_breaks"
+    bl_label = "Clear Break History"
+    bl_description = "Delete all recorded breaks and reset break state"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        pg = getattr(context.scene, "wtt_time_data", None)
+        if not pg:
+            self.report({"WARNING"}, "No time tracker data")
+            return {"CANCELLED"}
+
+        # 終了処理中なら閉じる
+        if pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions):
+            br = pg.break_sessions[pg.active_break_index]
+            if br.start > 0.0:
+                now = time.time()
+                br.end = now
+                br.duration = max(0.0, br.end - br.start)
+        pg.is_on_break = False
+        pg.active_break_index = -1
+
+        # 履歴削除
+        pg.break_sessions.clear()
+        self.report({"INFO"}, "Break history cleared")
+        log.info("Break sessions cleared by user")
+        return {"FINISHED"}
