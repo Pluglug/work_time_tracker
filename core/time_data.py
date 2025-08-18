@@ -156,7 +156,7 @@ class TimeData:
         log.debug(f"[Session-Create] After add: default values - id={item.id}, start={item.start}, end={item.end}")
         item.id = len(pg.sessions)
         item.start = now
-        item.end = 0.0
+        item.end = 0
         item.comment = ""
         pg.active_session_index = len(pg.sessions) - 1
         log.debug(f"[Session-Create] Initial values: id={item.id}, start={item.start}, end={item.end}")
@@ -195,7 +195,7 @@ class TimeData:
         now = int(time.time())
         s = pg.sessions[pg.active_session_index]
         s.start = now
-        s.end = 0.0
+        s.end = 0
         # 当該セッションの休憩を削除
         to_keep = [b for b in pg.break_sessions if b.session_id != s.id]
         pg.break_sessions.clear()
@@ -222,13 +222,13 @@ class TimeData:
         now = int(time.time())
         ended_count = 0
         for i, s in enumerate(pg.sessions):
-            if s.end <= 0.0:
+            if s.end <= 0:
                 # セッション終了
                 s.end = now
                 ended_count += 1
                 # 開いている休憩を締める（当該セッションのみ）
                 for b in pg.break_sessions:
-                    if b.session_id == s.id and b.start > 0.0 and b.end <= 0.0:
+                    if b.session_id == s.id and b.start > 0 and b.end <= 0:
                         b.end = now
                 log.info(
                     f"Ended session #{s.id}: "
@@ -254,7 +254,7 @@ class TimeData:
             return pg.sessions[idx]
         # フォールバック: 未終了の最後
         for s in reversed(pg.sessions):
-            if s.end <= 0.0:
+            if s.end <= 0:
                 return s
         return None
 
@@ -307,7 +307,7 @@ class TimeData:
             f"Saved time data: {num_sessions} sessions, {format_time(self.total_time)} total time"
         )
 
-    def _sum_breaks_for_session(self, session_id: int, end_cap: float) -> float:
+    def _sum_breaks_for_session(self, session_id: int, end_cap: int) -> float:
         pg = self._pg()
         if not pg:
             return 0.0
@@ -337,7 +337,7 @@ class TimeData:
             return 0.0
         for s in pg.sessions:
             if s.id == session_id:
-                end_cap = int(time.time()) if s.end <= 0.0 else s.end
+                end_cap = int(time.time()) if s.end <= 0 else s.end
                 base = max(0.0, end_cap - s.start)
                 return max(0.0, base - self._sum_breaks_for_session(session_id, end_cap))
         return 0.0
@@ -463,8 +463,8 @@ def depsgraph_activity_handler(_scene):
     if not pg:
         return
     now = int(time.time())
-    prev = int(getattr(pg, "last_activity_time", 0.0))
-    idle_before = max(0.0, now - prev) if prev > 0.0 else -1.0
+    prev = int(getattr(pg, "last_activity_time", 0))
+    idle_before = max(0.0, now - prev) if prev > 0 else -1.0
     pg.last_activity_time = now
     log.debug(
         f"[Activity] now={datetime.datetime.fromtimestamp(now)} idle_before={int(idle_before)} on_break={pg.is_on_break}"
