@@ -29,11 +29,11 @@ class WTT_UL_sessions(UIList):
         row.alignment = "LEFT"
         # 最小項目: 番号 / 合計(セッション)時間 / コメント編集
         row.label(text=f"#{item.id}")
-        dur_sec = (
-            item.duration
-            if item.end > 0
-            else (max(0.0, time.time() - item.start) if item.start > 0 else 0.0)
-        )
+        td = TimeDataManager.get_instance()
+        if td:
+            dur_sec = td.get_session_work_seconds_by_id(item.id)
+        else:
+            dur_sec = max(0.0, (time.time() if item.end <= 0 else item.end) - item.start)
         row.label(text=format_time(dur_sec))
         # コメントはpropで直接編集
         ui_prop(row, item, "comment", text="", emboss=False, placeholder="Comment")
@@ -53,9 +53,9 @@ class WTT_UL_breaks(UIList):
         row.label(text=f"#{item.id}")
 
         dur = (
-            item.duration
-            if item.end > 0
-            else (max(0.0, time.time() - item.start) if item.start > 0 else 0.0)
+            max(0.0, item.end - item.start) if item.end > 0 else (
+                max(0.0, time.time() - item.start) if item.start > 0 else 0.0
+            )
         )
         row.label(text=format_time(dur))
         # 休憩コメント編集
@@ -246,7 +246,7 @@ def time_tracker_draw(self, context):
     row.popover(panel="VIEW3D_PT_time_tracker", text=compact_text, icon="TIME")
 
     # セッション切替
-    sid = f"#{current['id']}" if current and "id" in current else "#-"
+    sid = f"#{current.id}" if current and getattr(current, 'id', None) else "#-"
     row.operator("timetracker.switch_session", text=sid)
 
     row.separator()

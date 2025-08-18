@@ -158,28 +158,27 @@ class TIMETRACKER_OT_export_data(Operator):
 
             # Write detailed session info
             report.write("## Session History\n")
-            for i, session in enumerate(time_data.sessions):
-                start_time = datetime.datetime.fromtimestamp(session["start"]).strftime(
+            pg = getattr(context.scene, "wtt_time_data", None)
+            sessions = list(pg.sessions) if pg else []
+            for i, session in enumerate(sessions):
+                start_time = datetime.datetime.fromtimestamp(session.start).strftime(
                     "%Y-%m-%d %H:%M:%S"
                 )
-
-                if session.get("end") is None:
+                if session.end <= 0.0:
                     end_time = "Active"
-                    duration = time.time() - session["start"]
                 else:
-                    end_time = datetime.datetime.fromtimestamp(session["end"]).strftime(
+                    end_time = datetime.datetime.fromtimestamp(session.end).strftime(
                         "%Y-%m-%d %H:%M:%S"
                     )
-                    duration = session["duration"]
-
+                duration = time_data.get_session_work_seconds_by_id(session.id)
                 formatted_duration = format_time(duration)
                 report.write(f"### Session {i + 1}\n")
                 report.write(f"- Start: {start_time}\n")
                 report.write(f"- End: {end_time}\n")
                 report.write(f"- Duration: {formatted_duration}\n")
 
-                if session.get("comment"):
-                    report.write(f"- Comment: {session['comment']}\n")
+                if session.comment:
+                    report.write(f"- Comment: {session.comment}\n")
 
                 report.write("\n")
 
@@ -203,14 +202,11 @@ class TIMETRACKER_OT_clear_breaks(Operator):
             return {"CANCELLED"}
 
         # 終了処理中なら閉じる
-        if pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(
-            pg.break_sessions
-        ):
+        if pg.is_on_break and 0 <= getattr(pg, "active_break_index", -1) < len(pg.break_sessions):
             br = pg.break_sessions[pg.active_break_index]
             if br.start > 0.0:
                 now = time.time()
                 br.end = now
-                br.duration = max(0.0, br.end - br.start)
         pg.is_on_break = False
         pg.active_break_index = -1
 
