@@ -4,8 +4,11 @@
 
 # pyright: reportInvalidTypeForm=false
 from bpy.types import AddonPreferences
-from bpy.props import IntProperty, BoolProperty
-from .addon import ADDON_ID
+from bpy.props import IntProperty, BoolProperty, EnumProperty
+from .addon import ADDON_ID, get_prefs
+from .utils.logging import get_logger
+
+log = get_logger(__name__)
 
 
 class WTT_Preferences(AddonPreferences):
@@ -16,6 +19,20 @@ class WTT_Preferences(AddonPreferences):
         col = layout.column()
         col.prop(self, "unsaved_warning_threshold_seconds")
         col.prop(self, "break_threshold_seconds")
+        col.prop(self, "debug_level", text="Debug Level", icon="CONSOLE")
+
+    debug_level: EnumProperty(
+        name="デバッグレベル",
+        description="ログ出力の詳細レベルを設定します",
+        items=[
+            ("DEBUG", "Debug", "最も詳細なログ出力"),
+            ("INFO", "Info", "一般的な情報のログ出力"),
+            ("WARNING", "Warning", "警告とエラーのみ"),
+            ("ERROR", "Error", "エラーのみ"),
+        ],
+        default="INFO",
+        update=lambda self, context: self._update_debug_level(),
+    )
 
     # 共通設定
     unsaved_warning_threshold_seconds: IntProperty(
@@ -33,3 +50,13 @@ class WTT_Preferences(AddonPreferences):
         min=30,
         max=3600,
     )
+
+    def _update_debug_level(self):
+        """デバッグレベルが変更されたときにログレベルを更新"""
+        log.set_level(self.debug_level.lower())
+        log.info(f"Work Time Tracker: debug level set to {self.debug_level}")
+
+
+def register():
+    pr = get_prefs()
+    pr._update_debug_level()
