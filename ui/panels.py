@@ -11,9 +11,25 @@ from ..core.time_data import TimeDataManager
 from ..utils.formatting import format_hours_minutes, format_time
 from ..utils.logging import get_logger
 from ..utils.ui_utils import ic, ui_prop
-from ..addon import get_prefs
+from ..addon import ADDON_ID, get_prefs
 
 log = get_logger(__name__)
+
+# ステータスバー描画の状態管理
+_STATUSBAR_ENABLED = False
+
+
+def enable_statusbar(enabled: bool):
+    global _STATUSBAR_ENABLED
+    if enabled and not _STATUSBAR_ENABLED:
+        STATUSBAR_HT_header.prepend(time_tracker_draw)
+        _STATUSBAR_ENABLED = True
+    elif not enabled and _STATUSBAR_ENABLED:
+        try:
+            STATUSBAR_HT_header.remove(time_tracker_draw)
+        except Exception:
+            pass
+        _STATUSBAR_ENABLED = False
 
 
 class WTT_UL_sessions(UIList):
@@ -33,7 +49,9 @@ class WTT_UL_sessions(UIList):
         if td:
             dur_sec = td.get_session_work_seconds_by_id(item.id)
         else:
-            dur_sec = max(0.0, (time.time() if item.end <= 0 else item.end) - item.start)
+            dur_sec = max(
+                0.0, (time.time() if item.end <= 0 else item.end) - item.start
+            )
         row.label(text=format_time(dur_sec))
         # コメントはpropで直接編集
         ui_prop(row, item, "comment", text="", emboss=False, placeholder="Comment")
@@ -53,9 +71,9 @@ class WTT_UL_breaks(UIList):
         row.label(text=f"#{item.id}")
 
         dur = (
-            max(0.0, item.end - item.start) if item.end > 0 else (
-                max(0.0, time.time() - item.start) if item.start > 0 else 0.0
-            )
+            max(0.0, item.end - item.start)
+            if item.end > 0
+            else (max(0.0, time.time() - item.start) if item.start > 0 else 0.0)
         )
         row.label(text=format_time(dur))
         # 休憩コメント編集
@@ -71,6 +89,25 @@ class VIEW3D_PT_time_tracker(Panel):
     bl_region_type = "UI"
     bl_category = "Time"
     bl_ui_units_x = 15
+
+    @classmethod
+    def poll(cls, context):
+        """Nパネルの表示有無をプリファレンスで制御（ポップオーバーは常に表示）"""
+        try:
+            region_type = getattr(getattr(context, "region", None), "type", None)
+            # UIリージョン（Nパネル）のときのみトグルを適用
+            if region_type == "UI":
+                prefs = get_prefs(context)
+                return bool(getattr(prefs, "show_in_n_panel", True))
+        except Exception:
+            pass
+        return True
+
+    def draw_header_preset(self, context):
+        """ヘッダーにプリファレンスへのショートカット"""
+        layout = self.layout
+        op = layout.operator("preferences.addon_show", text="", icon="PREFERENCES")
+        op.module = ADDON_ID
 
     def draw(self, context):
         layout = self.layout
@@ -92,7 +129,10 @@ class VIEW3D_PT_time_tracker(Panel):
             return
 
         if self.is_popover:
-            layout.label(text="Work Time Tracker", icon="TIME")
+            header = layout.row()
+            header.label(text="Work Time Tracker", icon="TIME")
+            op = header.operator("preferences.addon_show", text="", icon="PREFERENCES")
+            op.module = ADDON_ID
             layout.separator(type="LINE")
 
         if time_data:
@@ -147,9 +187,7 @@ class VIEW3D_PT_time_tracker(Panel):
                 row.label(text=time_data.get_formatted_time_since_save())
 
             row = summary_col.row()
-            row.operator(
-                "timetracker.export_data", text="Export Report", icon="TEXT"
-            )
+            row.operator("timetracker.export_data", text="Export Report", icon="TEXT")
 
             # Sessions list
             # TODO: 前のセッションとマージできるようにする
@@ -245,7 +283,7 @@ def time_tracker_draw(self, context):
     row.popover(panel="VIEW3D_PT_time_tracker", text=compact_text, icon="TIME")
 
     # セッション切替
-    sid = f"#{current.id}" if current and getattr(current, 'id', None) else "#-"
+    sid = f"#{current.id}" if current and getattr(current, "id", None) else "#-"
     row.operator("timetracker.switch_session", text=sid)
 
     row.separator()
@@ -273,8 +311,18 @@ def time_tracker_draw(self, context):
 
 
 def register():
-    STATUSBAR_HT_header.prepend(time_tracker_draw)
+    # prefsに従って有効化（preferences.register内でも初期反映しているが、二重になっても安全）
+    try:
+        prefs = get_prefs()
+        enable_statusbar(bool(getattr(prefs, "show_in_statusbar", True)))
+    except Exception:
+        # prefs未取得時は黙ってスキップ
+        pass
 
 
 def unregister():
-    STATUSBAR_HT_header.remove(time_tracker_draw)
+    # 常に無効化して終了
+    try:
+        enable_statusbar(False)
+    except Exception:
+        pass
