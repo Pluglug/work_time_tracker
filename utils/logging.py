@@ -17,7 +17,7 @@ class LogLevel(IntEnum):
 class Log:
     """Simple logger with color output and configurable level/output."""
 
-    _level = LogLevel.DEBUG
+    _level = LogLevel.INFO
     _output: Optional[TextIO] = None
     _colors = {
         LogLevel.DEBUG: "\033[34m",  # blue
