@@ -379,7 +379,7 @@ class TimeData:
         for s in pg.sessions:
             end_cap = int(time.time()) if s.end <= 0 else s.end
             # セッション開始時刻の妥当性チェック
-            if s.start <= 0.0:
+            if s.start <= 0:
                 log.warning(f"[Recalc] Invalid session start time: session_id={s.id} start={s.start}")
                 continue
             base = max(0.0, end_cap - s.start)
@@ -431,10 +431,17 @@ def load_handler(_dummy):
     if not time_data.data_loaded:
         time_data.load_data()
         time_data.data_loaded = True
-        # 新しいセッションを開始
-        time_data.start_session()
-    else:
-        log.debug("[load_handler] Data already loaded, skipping")
+    # 前ファイル由来のゴミをリセット（必ず実行）
+    pg = getattr(bpy.context.scene, "wtt_time_data", None)
+    if pg:
+        pg.sessions.clear()
+        pg.break_sessions.clear()
+        pg.active_session_index = -1
+        pg.active_break_index = -1
+        pg.is_on_break = False
+        pg.last_activity_time = int(time.time())
+    # 新しいセッションを開始
+    time_data.start_session()
 
     log.info(f"File loaded: {bpy.data.filepath}")
 
@@ -552,6 +559,14 @@ def update_time_callback():
         )
         # End current sessions (they belong to the old file)
         time_data.end_active_sessions()
+        # 旧ファイルに紐づく休憩は破棄
+        pg2 = time_data._pg()
+        if pg2:
+            pg2.break_sessions.clear()
+            pg2.is_on_break = False
+            pg2.active_break_index = -1
+            pg2.active_session_index = -1
+            pg2.last_activity_time = int(time.time())
         # Update file ID
         time_data.file_id = bpy.path.basename(filepath)
         # Start new session for the new file
