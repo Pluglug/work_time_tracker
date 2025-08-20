@@ -141,7 +141,7 @@ class WTT_Preferences(AddonPreferences):
 
     def _apply_statusbar(self, context):
         try:
-            from .ui.panels import enable_statusbar
+            from .ui.statusbar import enable_statusbar
 
             enable_statusbar(bool(self.show_in_statusbar))
         except Exception as ex:
@@ -158,7 +158,7 @@ def register():
         log.warning(f"Failed to apply initial sidebar prefs: {ex}")
     # ステータスバー表示初期反映
     try:
-        from .ui.panels import enable_statusbar
+        from .ui.statusbar import enable_statusbar
 
         enable_statusbar(bool(getattr(pr, "show_in_statusbar", True)))
     except Exception as ex:
