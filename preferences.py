@@ -16,10 +16,23 @@ class WTT_Preferences(AddonPreferences):
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
         col = layout.column()
+        col.prop(self, "popover_panel_width", text="Popover Panel Width")
         col.prop(self, "unsaved_warning_threshold_seconds")
         col.prop(self, "break_threshold_seconds")
         col.prop(self, "debug_level", text="Debug Level", icon="CONSOLE")
+
+    # パネルサイズ設定
+    popover_panel_width: IntProperty(
+        name="Popover Panel Width",
+        description="Width of the time tracker panel when displayed as popover (in UI units)",
+        default=15,
+        min=10,
+        max=30,
+    )
 
     debug_level: EnumProperty(
         name="デバッグレベル",

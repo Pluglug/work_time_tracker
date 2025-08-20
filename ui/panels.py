@@ -77,6 +77,14 @@ class VIEW3D_PT_time_tracker(Panel):
         layout.use_property_split = True
         layout.use_property_decorate = False
 
+        # popover表示時は prefs の幅を動的に適用
+        if getattr(self, "is_popover", False):
+            prefs = get_prefs(context)
+            if prefs:
+                layout.ui_units_x = int(
+                    max(10, min(30, int(getattr(prefs, "popover_panel_width", 15))))
+                )
+
         # TimeDataManagerからインスタンスを取得
         time_data = TimeDataManager.get_instance()
         if not time_data:
@@ -130,7 +138,6 @@ class VIEW3D_PT_time_tracker(Panel):
                 30, int(getattr(prefs, "unsaved_warning_threshold_seconds", 600))
             )
             if context.blend_data.is_dirty and time_since_save > warn_threshold:
-                row = summary_col.row()
                 row.alert = True
                 row.label(text=f"{time_data.get_formatted_time_since_save()}")
                 row_alert = summary_col.row()
@@ -171,14 +178,6 @@ class VIEW3D_PT_time_tracker(Panel):
             h = bc.row()
             h.label(text="Breaks", icon=ic("SORTTIME"))
             if pg:
-                # 状態表示
-                # state_row = bc.row()
-                # if pg.is_on_break:
-                #     state_row.alert = True
-                #     state_row.label(text="Now: On Break")
-                # else:
-                #     state_row.label(text="Now: Working")
-
                 # アイドル経過
                 idle = (
                     max(0.0, time.time() - pg.last_activity_time)
