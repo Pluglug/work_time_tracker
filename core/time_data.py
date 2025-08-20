@@ -476,6 +476,22 @@ def update_time_callback():
     # 時間データのインスタンスを取得
     time_data = TimeDataManager.get_instance()
 
+    # 重要ハンドラの自己修復（ファイルオープン後に消えるケース対策）
+    try:
+        def _is_registered(lst, func):
+            for f in lst:
+                if getattr(f, "__name__", None) == getattr(func, "__name__", None):
+                    return True
+            return False
+        if not _is_registered(bpy.app.handlers.depsgraph_update_post, depsgraph_activity_handler):
+            bpy.app.handlers.depsgraph_update_post.append(depsgraph_activity_handler)
+        if not _is_registered(bpy.app.handlers.load_post, load_handler):
+            bpy.app.handlers.load_post.append(load_handler)
+        if not _is_registered(bpy.app.handlers.save_post, save_handler):
+            bpy.app.handlers.save_post.append(save_handler)
+    except Exception:
+        pass
+
     # 軽量アイドル検出と休憩管理（閾値はアドオンプリファレンスから）
     pg = time_data._pg()
     now = int(time.time())
@@ -560,6 +576,18 @@ def delayed_start():
         if pg and len(pg.sessions) == 0:
             time_data.start_session()
 
+    # 欠落したハンドラを再登録（再ロード対策）
+    try:
+        def _is_registered(lst, func):
+            for f in lst:
+                if getattr(f, "__name__", None) == getattr(func, "__name__", None):
+                    return True
+            return False
+        if not _is_registered(bpy.app.handlers.depsgraph_update_post, depsgraph_activity_handler):
+            bpy.app.handlers.depsgraph_update_post.append(depsgraph_activity_handler)
+    except Exception:
+        pass
+
     # タイマーを開始
     start_timer()
     return None  # 一度だけ実行
@@ -602,11 +630,19 @@ def register():
     if not hasattr(bpy.types.Scene, "wtt_time_data"):
         bpy.types.Scene.wtt_time_data = PointerProperty(type=WTT_TimeData)
 
-    # ハンドラーを登録
-    bpy.app.handlers.load_post.append(load_handler)
-    bpy.app.handlers.save_post.append(save_handler)
+    # ハンドラーを登録（重複防止）
+    def _is_registered(lst, func):
+        for f in lst:
+            if getattr(f, "__name__", None) == getattr(func, "__name__", None):
+                return True
+        return False
+
+    if not _is_registered(bpy.app.handlers.load_post, load_handler):
+        bpy.app.handlers.load_post.append(load_handler)
+    if not _is_registered(bpy.app.handlers.save_post, save_handler):
+        bpy.app.handlers.save_post.append(save_handler)
     # 依存グラフ更新でアクティビティを検知（軽量: タイムスタンプ更新のみ）
-    if depsgraph_activity_handler not in bpy.app.handlers.depsgraph_update_post:
+    if not _is_registered(bpy.app.handlers.depsgraph_update_post, depsgraph_activity_handler):
         bpy.app.handlers.depsgraph_update_post.append(depsgraph_activity_handler)
 
     bpy.app.timers.register(delayed_start, first_interval=1.0)

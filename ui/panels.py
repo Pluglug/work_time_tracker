@@ -172,6 +172,9 @@ class VIEW3D_PT_time_tracker(Panel):
 
             row = summary_col.row()
             row.operator("timetracker.export_data", text="Export Report", icon="TEXT")
+            row.operator(
+                "timetracker.debug_dump", text="Debug Dump", icon="INFO"
+            )
 
             # Sessions list
             # TODO: 前のセッションとマージできるようにする

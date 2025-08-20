@@ -8,11 +8,13 @@ import time
 
 import bpy
 from bpy.types import Operator
-from bpy.props import StringProperty
+from bpy.props import StringProperty, BoolProperty
 
 from ..core.time_data import TimeDataManager
+from ..core import time_data as core_time
 from ..utils.formatting import format_time
 from ..utils.logging import get_logger
+from ..addon import get_prefs
 
 log = get_logger(__name__)
 
@@ -214,4 +216,97 @@ class TIMETRACKER_OT_clear_breaks(Operator):
         pg.break_sessions.clear()
         self.report({"INFO"}, "Break history cleared")
         log.info("Break sessions cleared by user")
+        return {"FINISHED"}
+
+
+class TIMETRACKER_OT_debug_dump(Operator):
+    """内部状態をダンプ（ハンドラ/タイマー/セッション/休憩/しきい値）"""
+
+    bl_idname = "timetracker.debug_dump"
+    bl_label = "Debug: Dump Tracker State"
+    bl_description = "Dump handler, timer, session and break state for diagnostics"
+    bl_options = {"REGISTER"}
+
+    to_text: BoolProperty(name="To Text", default=True, options={"SKIP_SAVE"})
+    to_console: BoolProperty(name="To Console", default=True, options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        lines = []
+        now = int(time.time())
+        lines.append(f"[WTT Debug Dump] now={now}")
+
+        # Preferences
+        try:
+            prefs = get_prefs(context)
+            warn_th = int(getattr(prefs, "unsaved_warning_threshold_seconds", 600))
+            break_th = int(getattr(prefs, "break_threshold_seconds", 300))
+        except Exception:
+            warn_th = 600
+            break_th = 300
+        lines.append(f"prefs: unsaved_warn={warn_th}s, break_threshold={break_th}s")
+
+        # PG state
+        pg = getattr(context.scene, "wtt_time_data", None)
+        if pg:
+            idle = max(0, now - int(getattr(pg, "last_activity_time", 0)))
+            lines.append(
+                f"pg: is_on_break={pg.is_on_break}, last_activity={pg.last_activity_time} (idle={idle}s), active_break_idx={pg.active_break_index}"
+            )
+            lines.append(
+                f"pg: sessions={len(pg.sessions)}, active_session_idx={pg.active_session_index}, breaks={len(pg.break_sessions)}"
+            )
+        else:
+            lines.append("pg: <none>")
+
+        # Handlers registration
+        is_load = core_time.load_handler in bpy.app.handlers.load_post
+        is_save = core_time.save_handler in bpy.app.handlers.save_post
+        is_dep = core_time.depsgraph_activity_handler in bpy.app.handlers.depsgraph_update_post
+        lines.append(f"handlers: load_post={is_load}, save_post={is_save}, depsgraph_update_post={is_dep}")
+
+        # Timer
+        is_registered = False
+        timer_api = getattr(bpy.app, "timers", None)
+        if timer_api and hasattr(timer_api, "is_registered"):
+            try:
+                is_registered = bpy.app.timers.is_registered(core_time.update_time_callback)
+            except Exception:
+                is_registered = False
+        lines.append(f"timer: registered={is_registered}, _timer_running={getattr(core_time, '_timer_running', None)}")
+
+        # TimeData / sessions
+        td = TimeDataManager.get_instance()
+        td.ensure_loaded()
+        cur = td.get_current_session()
+        lines.append(f"total_time={format_time(td.total_time)}, current_session_time={format_time(td.get_current_session_time())}")
+        if cur:
+            lines.append(
+                f"current_session: id={cur.id}, start={cur.start}, end={cur.end}"
+            )
+        # List recent breaks (max 5)
+        if pg and len(pg.break_sessions) > 0:
+            lines.append("breaks (recent):")
+            for b in list(pg.break_sessions)[-5:]:
+                bend = b.end if b.end > 0 else now
+                dur = max(0, bend - b.start) if b.start > 0 else 0
+                lines.append(
+                    f"  - id={b.id}, sid={b.session_id}, start={b.start}, end={b.end}, dur={format_time(dur)}"
+                )
+
+        # Would start break?
+        if pg:
+            would_break = (not pg.is_on_break) and (max(0, now - pg.last_activity_time) >= max(30, break_th))
+            lines.append(f"decision: would_break_now={would_break}")
+
+        report = "\n".join(lines)
+
+        if self.to_console:
+            print(report)
+        if self.to_text:
+            name = f"WTT_Debug_{time.strftime('%Y%m%d_%H%M%S')}"
+            text = bpy.data.texts.new(name)
+            text.write(report)
+            self.report({"INFO"}, f"Debug written to Text: {name}")
+        else:
+            self.report({"INFO"}, "Debug dump printed to console")
         return {"FINISHED"}
