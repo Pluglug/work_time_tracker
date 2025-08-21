@@ -431,16 +431,30 @@ def load_handler(_dummy):
     if not time_data.data_loaded:
         time_data.load_data()
         time_data.data_loaded = True
-    # 前ファイル由来のゴミをリセット（必ず実行）
+
+    now = int(time.time())
+    current_file_id = bpy.path.basename(bpy.data.filepath) if bpy.data.filepath else "unsaved_file"
+
     pg = getattr(bpy.context.scene, "wtt_time_data", None)
     if pg:
-        pg.sessions.clear()
-        pg.break_sessions.clear()
+        same_file = (pg.file_id == current_file_id and current_file_id)
+        if not same_file:
+            # 異なるファイル → 完全リセット（旧履歴は別ファイルのもの）
+            pg.sessions.clear()
+            pg.break_sessions.clear()
+            pg.file_id = current_file_id
+        else:
+            # 同じファイル → 履歴保持。未終了休憩のみ終了
+            for br in pg.break_sessions:
+                if br.start > 0 and br.end <= 0:
+                    br.end = now
+        # 共通の初期化
         pg.active_session_index = -1
         pg.active_break_index = -1
         pg.is_on_break = False
-        pg.last_activity_time = int(time.time())
-    # 新しいセッションを開始
+        pg.last_activity_time = now
+
+    # 新しいセッションを開始（前セッションはクローズせずに履歴として保持済み）
     time_data.start_session()
 
     log.info(f"File loaded: {bpy.data.filepath}")
@@ -559,10 +573,13 @@ def update_time_callback():
         )
         # End current sessions (they belong to the old file)
         time_data.end_active_sessions()
-        # 旧ファイルに紐づく休憩は破棄
+        # 旧ファイルに紐づく休憩は破棄しない。未終了のみクローズ
         pg2 = time_data._pg()
         if pg2:
-            pg2.break_sessions.clear()
+            if 0 <= getattr(pg2, "active_break_index", -1) < len(pg2.break_sessions):
+                br = pg2.break_sessions[pg2.active_break_index]
+                if br.start > 0 and br.end <= 0:
+                    br.end = int(time.time())
             pg2.is_on_break = False
             pg2.active_break_index = -1
             pg2.active_session_index = -1
